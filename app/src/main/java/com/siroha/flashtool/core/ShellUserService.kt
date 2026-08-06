@@ -14,9 +14,6 @@ private const val ERR_MARKER = "\n<<<SIROHA_ERR>>>\n"
  */
 class ShellUserService : IShellService.Stub() {
 
-    // No-arg constructor is required by Shizuku's UserService binding.
-    constructor()
-
     override fun runCommand(command: String): String {
         return try {
             val process = ProcessBuilder("sh", "-c", command)
