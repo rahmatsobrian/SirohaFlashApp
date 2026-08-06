@@ -1,0 +1,163 @@
+name: Android CI
+
+# No repository secrets are used anywhere in this workflow. Release builds are
+# signed with the debug keystore committed at app/debug.keystore purely so CI
+# can produce an installable artifact; swap in a real upload keystore (kept
+# OUTSIDE the repo, e.g. as a secret) before publishing to the Play Store.
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+# contents: write is needed only for the (optional) step that commits a
+# freshly-generated gradlew back to the repo. That permission is granted
+# automatically to the built-in GITHUB_TOKEN — it's not a secret you add
+# yourself, so this still requires zero repository secrets.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Installs a real `gradle` binary so the wrapper (gradlew + the
+      # gradle-wrapper.jar) can be generated even on a totally fresh clone
+      # that has none of it committed yet.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle Wrapper (gradlew + gradle-wrapper.jar)
+        id: wrapper
+        run: |
+          set -o pipefail
+          if [ ! -f "./gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "No wrapper jar found in the repo — generating one now."
+            gradle wrapper --gradle-version 8.9 --distribution-type bin --stacktrace
+          else
+            echo "Wrapper already present, skipping generation."
+          fi
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      # Keeps the generated wrapper in the repo so `./gradlew` also works for
+      # anyone who clones it locally, instead of only inside CI. Skipped on
+      # pull_request runs (those can't push) and silently no-ops if nothing
+      # changed.
+      - name: Commit generated wrapper back to the repo
+        if: github.event_name != 'pull_request'
+        run: |
+          if git status --porcelain gradlew gradlew.bat gradle/wrapper | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add gradlew gradlew.bat gradle/wrapper
+            git commit -m "ci: add/update Gradle wrapper [skip ci]"
+            git push
+          else
+            echo "Wrapper unchanged, nothing to commit."
+          fi
+
+      - name: Grant execute permission to bundled qdl binaries
+        run: chmod +x app/src/main/jniLibs/*/libqdl.so
+
+      # Full, plain-text build log — this is what you copy/paste back into the
+      # chat if a build fails. It's uploaded as an artifact on every run,
+      # success or failure.
+      - name: Assemble debug APK
+        id: assemble
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --warning-mode all 2>&1 | tee build-debug.log
+
+      - name: Run unit tests
+        id: test
+        if: success() || steps.assemble.outcome == 'success'
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee test.log
+
+      - name: Run Android Lint
+        id: lint
+        run: |
+          set -o pipefail
+          ./gradlew lintDebug --stacktrace 2>&1 | tee lint.log
+        continue-on-error: true
+
+      - name: Assemble release APK (debug-signed, no secrets)
+        id: release
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee build-release.log
+
+      - name: Combine logs into one file
+        if: always()
+        run: |
+          {
+            echo "===== assembleDebug ====="; cat build-debug.log 2>/dev/null
+            echo; echo "===== testDebugUnitTest ====="; cat test.log 2>/dev/null
+            echo; echo "===== lintDebug ====="; cat lint.log 2>/dev/null
+            echo; echo "===== assembleRelease ====="; cat build-release.log 2>/dev/null
+          } > full-build-log.txt
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: full-build-log.txt
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/test-results/**/*.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-*.html
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          retention-days: 14
+
+      - name: Print short summary to job log
+        if: always()
+        run: |
+          echo "### Siroha Flash Tool — Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Gradle wrapper: ${{ steps.wrapper.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- assembleDebug: ${{ steps.assemble.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- testDebugUnitTest: ${{ steps.test.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- lintDebug: ${{ steps.lint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- assembleRelease: ${{ steps.release.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Full plain-text log: download the **build-log** artifact above," >> "$GITHUB_STEP_SUMMARY"
+          echo "open full-build-log.txt, and paste its contents back into the chat" >> "$GITHUB_STEP_SUMMARY"
+          echo "if anything needs fixing." >> "$GITHUB_STEP_SUMMARY"
