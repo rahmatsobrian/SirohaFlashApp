@@ -12,19 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,10 +36,11 @@ import com.siroha.flashtool.core.RawProgramPartition
 import com.siroha.flashtool.core.RawProgramXml
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
+import com.siroha.flashtool.ui.components.SectionHeading
+import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QdlFlashScreen(
     executorProvider: ExecutorProvider,
@@ -77,14 +74,7 @@ fun QdlFlashScreen(
     val patchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { patchUri = it }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("QDL Flash (EDL 9008)") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
-                }
-            )
-        }
+        topBar = { SirohaTopBar("QDL Flash (EDL 9008)", icon = Icons.Filled.Bolt, onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -101,13 +91,13 @@ fun QdlFlashScreen(
                 FilterChip(selected = storage == "ufs", onClick = { storage = "ufs" }, label = { Text("UFS") })
             }
 
-            OutlinedButton(onClick = { loaderPicker.launch(arrayOf("*/*")) }) {
+            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { loaderPicker.launch(arrayOf("*/*")) }) {
                 Text(loaderUri?.lastPathSegment ?: "Pick firehose loader (.mbn/.elf)")
             }
-            OutlinedButton(onClick = { rawprogramPicker.launch(arrayOf("text/xml", "*/*")) }) {
+            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { rawprogramPicker.launch(arrayOf("text/xml", "*/*")) }) {
                 Text(rawprogramUri?.lastPathSegment ?: "Pick rawprogram*.xml")
             }
-            OutlinedButton(onClick = { patchPicker.launch(arrayOf("text/xml", "*/*")) }) {
+            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { patchPicker.launch(arrayOf("text/xml", "*/*")) }) {
                 Text(patchUri?.lastPathSegment ?: "Pick patch*.xml")
             }
 
@@ -174,6 +164,7 @@ fun QdlFlashScreen(
                 }
             ) { Text(if (running) "Flashing..." else "Start QDL Flash") }
 
+            SectionHeading(Icons.Filled.Bolt, "Output")
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
             }

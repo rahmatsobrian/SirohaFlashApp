@@ -36,6 +36,9 @@ object UsbDeviceHelper {
     fun isLikelyFastbootDevice(device: UsbDevice): Boolean =
         !isEdlDevice(device) && FastbootUsbClient.findFastbootInterface(device) != null
 
+    fun isLikelyAdbDevice(device: UsbDevice): Boolean =
+        !isEdlDevice(device) && AdbUsbClient.findAdbInterface(device) != null
+
     /** Suspends until the user grants (or denies) USB permission for [device]. */
     suspend fun requestPermission(context: Context, device: UsbDevice): Boolean {
         val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager

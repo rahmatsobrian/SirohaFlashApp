@@ -7,18 +7,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +29,7 @@ import com.siroha.flashtool.core.BinaryManager
 import com.siroha.flashtool.core.ExecutionMode
 import com.siroha.flashtool.core.ExecutorProvider
 import com.siroha.flashtool.core.UsbDeviceHelper
+import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
 
 private data class Check(val label: String, val ok: Boolean, val hint: String)
@@ -57,7 +55,6 @@ private fun CheckRow(check: Check) {
  * is a native APK. What still matters natively is: is root or Shizuku
  * ready, is a USB device visible, is the right qdl binary bundled.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RequirementsScreen(executorProvider: ExecutorProvider, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -66,12 +63,7 @@ fun RequirementsScreen(executorProvider: ExecutorProvider, onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Requirements & Status") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
-            )
-        }
+        topBar = { SirohaTopBar("Requirements & Status", icon = Icons.Filled.TaskAlt, onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),

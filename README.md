@@ -1,85 +1,82 @@
 # Siroha Flash Tool (Android app)
 
 A native Android port of the [SirohaFlashTool](.) Termux/bash script (all 10
-menu modules) — Material 3, Material You dynamic color, Android 10 (API 29)
-through 16, running with **either root or Shizuku** (no root) as the
-privilege backend.
+menu modules) — Material 3, Material You dynamic color (+ AMOLED/light/dark/
+system theme control), Android 10 (API 29) through 16, running with **root,
+Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
-- Material3 + dynamic color theme — Material You on Android 12+, static
-  brand palette fallback on 10/11.
+- Material3 + dynamic color theme, with a Settings-page picker for
+  System / Light / Dark / **AMOLED** (true-black surfaces) and a toggle for
+  Material You itself.
 - Root backend via [libsu](https://github.com/topjohnwu/libsu) and a
   Shizuku backend via a bound `UserService` (AIDL). The app tries root
   first, then Shizuku, automatically (`core/ExecutorProvider.kt`).
-- `qdl` binaries bundled as `jniLibs/<abi>/libqdl.so` (survives Android
-  10+'s W^X restrictions without a runtime `chmod`).
-- **QDL Flash (EDL 9008)** — pick loader/rawprogram/patch XML, choose
-  eMMC/UFS storage, and a **partition checklist** parsed straight out of the
-  rawprogram XML (`core/RawProgramXml.kt`) so you can flash a subset instead
-  of everything.
+- **ADB-over-USB, implemented from scratch** (`core/AdbUsbClient.kt` +
+  `core/AdbKeyManager.kt`) — message framing, the CNXN/AUTH handshake, RSA
+  keypair generation, and Android's own non-standard public-key wire format
+  (`RSAPublicKey` C struct, base64-encoded), plus `adb shell` command
+  execution. Backs the Samsung/SPRD FRP methods on the FRP screen.
+  **Not implemented:** ADB sideload — that's a separate chunked/flow-
+  controlled transfer protocol, not a plain shell command.
+  ⚠️ **The public-key wire encoding has not been exercised against a real
+  device's "Allow USB debugging?" dialog** — there was no USB hardware
+  available in the environment this was written in. The Montgomery math
+  (n0inv, R² mod N) is standard and should be correct; the struct layout is
+  reconstructed from memory of the AOSP C source. If first-time pairing
+  never completes (device keeps re-sending AUTH TOKEN after you send your
+  public key), this is the first place to check — send back what you see
+  and it can be debugged from there.
+- `qdl` binaries bundled as `jniLibs/<abi>/libqdl.so`.
+- **QDL Flash (EDL 9008)** — loader/rawprogram/patch XML picker, eMMC/UFS
+  storage choice, and a **partition checklist** parsed from the rawprogram
+  XML.
 - **Bypass UBL — Redmi 4A (rolex)**.
-- **Fastboot Flash Tool, GSI ROM Tool, A/B Partition Tool, FRP Remove
-  (fastboot half)** — all built on a **from-scratch fastboot-over-USB
-  protocol client** (`core/FastbootUsbClient.kt`), because the uploaded zip
-  never included a `fastboot` binary and none could be downloaded in the
-  sandbox that built this. It implements the public AOSP wire protocol
-  (command/response framing, the DATA download handshake, chunked bulk
-  transfer) directly against `UsbManager`/`UsbDeviceConnection`.
+- **Fastboot Flash Tool, GSI ROM Tool, A/B Partition Tool** — built on a
+  from-scratch fastboot-over-USB protocol client (`core/FastbootUsbClient.kt`).
+  Same hardware-testing caveat as ADB above: written carefully against the
+  public protocol spec, not yet verified against real EDL/fastboot hardware.
+- **FRP Remove Tool** — SPRD method via fastboot (`erase persist`); Samsung
+  and SPRD/MTK methods via the new ADB client.
 - **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
-- CI workflow — builds debug+release, tests, lint, **zero repo secrets**,
+- CI workflow — builds debug+release, tests, lint, zero repo secrets,
   self-generates and commits the Gradle wrapper if missing.
 
-## Known gaps — read before assuming something "just works"
+## Known gaps
 
-- **The fastboot-over-USB protocol client has not been tested against real
-  hardware.** It's written carefully against the public protocol spec, but
-  there was no EDL/fastboot device or USB access available in the sandbox
-  that built this. Treat it as "should be correct," test cautiously, and
-  send back logs/errors from a real run so any protocol-level mistakes can
-  get fixed.
-- **ADB-over-USB is not implemented** — `ADB Sideload` (Fastboot/A-B
-  screens) and the Samsung/SPRD FRP methods (`menu_frp` options 2–3 in
-  flash.sh) all shell commands into the *target* device over ADB, which
-  needs the full ADB protocol (RSA key auth handshake) — a separate,
-  larger undertaking from fastboot's simple command/response protocol.
-  Only the fastboot-based FRP method (`erase persist`) is wired up.
-- **`wipe-super`** (flash.sh's GSI menu option 8) isn't a raw fastboot
-  protocol command — the real `fastboot` host tool parses a
-  `super_empty.img` and issues a sequence of create/resize/delete logical
-  partition commands. Not reimplemented; `deleteLogicalPartition` for named
-  partitions is, since that *is* a single protocol command.
+- **ADB sideload** and **wipe-super** — see above / earlier notes; both are
+  separate, more complex protocols than plain command/response.
 - **MiTool** (Xiaomi unlock/flash/assistant) needs Python + Xiaomi's
-  official account-based unlock API — out of scope for a native rewrite in
-  this pass. Original scripts kept in `mitool_reference/` for reference,
-  not compiled into the app.
-- **`menu_install`** in flash.sh was Termux package management (`pkg
-  install adb/python3/...`) — meaningless once this is a native APK, so it
-  was replaced with **Requirements & Status** (checks root/Shizuku/USB/qdl
-  presence instead of installing packages).
+  official account-based unlock API — out of scope for a native rewrite.
+  Original scripts kept in `mitool_reference/`, not compiled into the app.
+- **`menu_install`** in flash.sh was Termux package management — replaced
+  with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).
+- Nothing in this app has been compile-tested or hardware-tested in the
+  environment that wrote it (no Android SDK, no USB access). CI is the
+  first real compile; a real device is the first real protocol test.
 
 ## Getting logs back to me
 
 GitHub Actions can't push anything into this chat automatically. After a
 run: download the **build-log** artifact, open `full-build-log.txt`, paste
-the relevant part back into the chat.
-
-For runtime bugs (something crashes or behaves wrong on a real device):
-open the in-app **Logs** screen, tap Share, and paste that here too —
-it has timestamped detail the build log won't.
+the relevant part back. For runtime bugs, use the in-app **Logs** screen's
+share button instead — it has protocol-level detail the build log won't.
 
 ## Local setup
 
 1. Push to GitHub — the first CI run generates and commits the Gradle
-   wrapper (`gradlew`, `gradle-wrapper.jar`) automatically, no secrets
-   needed. Or open in Android Studio, which does the same locally.
+   wrapper automatically. Or open in Android Studio, which does the same
+   locally.
 2. Run on a device/emulator, Android 10–16.
 3. Root: grant superuser access in Magisk/KernelSU/APatch.
 4. Shizuku: install [Shizuku](https://shizuku.rikka.app/), start it, grant
    permission from Settings → "Use Shizuku".
-5. Fastboot/EDL features need a real target device connected via USB
-   OTG — an emulator can't exercise USB host mode.
+5. Fastboot/EDL/ADB features need a real target device connected via USB
+   OTG — an emulator can't exercise USB host mode. For ADB, the first
+   connection to any given target needs you to tap "Allow" on that
+   device's own screen after this app sends its public key.
 
 ## Project layout
 
@@ -89,8 +86,8 @@ app/src/main/
 ├── assets/bypass-ubl/...         ← Redmi 4A firehose loader + XML maps
 ├── aidl/.../IShellService.aidl   ← Shizuku UserService contract
 └── java/com/siroha/flashtool/
-    ├── core/                     ← shell exec, fastboot-over-USB, binary/asset mgmt
+    ├── core/                     ← shell exec, fastboot/ADB-over-USB, binary/asset mgmt, theme prefs
     ├── data/                     ← LogRepository
-    └── ui/{theme,navigation,screens}/
+    └── ui/{theme,navigation,screens,components}/
 mitool_reference/                 ← original Python scripts, not compiled in
 ```

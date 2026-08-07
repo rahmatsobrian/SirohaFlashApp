@@ -6,7 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.siroha.flashtool.core.ThemeMode
 import com.siroha.flashtool.ui.navigation.SirohaNavGraph
 import com.siroha.flashtool.ui.theme.SirohaFlashToolTheme
 
@@ -18,11 +21,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SirohaFlashToolTheme {
+            val themeMode by app.themePreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            val dynamicColor by app.themePreferences.dynamicColorEnabled.collectAsState(initial = true)
+
+            SirohaFlashToolTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SirohaNavGraph(
                         executorProvider = app.executorProvider,
-                        logRepository = app.logRepository
+                        logRepository = app.logRepository,
+                        themePreferences = app.themePreferences
                     )
                 }
             }

@@ -8,20 +8,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
+import com.siroha.flashtool.ui.components.SectionHeading
+import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -48,10 +49,10 @@ private fun FlashButton(label: String, partition: String, ops: FastbootOperation
         val path = SafFiles.copyToCache(context, uri, "$partition.img")
         scope.launch { busy(true); ops.flashPartition(partition, File(path)); busy(false) }
     }
-    OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text(label) }
+    FilledTonalButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text(label) }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -61,22 +62,19 @@ fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val entries by logRepository.entries.collectAsState()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("A/B Partition Tool") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
-            )
-        }
+        topBar = { SirohaTopBar("A/B Partition Tool", icon = Icons.Filled.SwapHoriz, onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Button(enabled = !busy, onClick = { scope.launch { busy = true; ops.connect(); busy = false } }) {
-                Text("Connect fastboot device")
-            }
+            FilledTonalButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
+            ) { Text("Connect fastboot device") }
 
-            Text("Flash by slot", style = MaterialTheme.typography.labelLarge)
+            SectionHeading(Icons.Filled.RocketLaunch, "Flash by slot")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FlashButton("boot (active)", "boot", ops) { busy = it }
                 FlashButton("boot_a", "boot_a", ops) { busy = it }
@@ -92,28 +90,29 @@ fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 FlashButton("vbmeta_b", "vbmeta_b", ops) { busy = it }
             }
 
-            Text("Slot control", style = MaterialTheme.typography.labelLarge)
+            SectionHeading(Icons.Filled.SwapHoriz, "Slot control")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { scope.launch { busy = true; ops.getVar("current-slot"); busy = false } }) { Text("Check active slot") }
-                OutlinedButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("a"); busy = false } }) { Text("Set active: A") }
-                OutlinedButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("b"); busy = false } }) { Text("Set active: B") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("current-slot"); busy = false } }) { Text("Check active slot") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("a"); busy = false } }) { Text("Set active: A") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("b"); busy = false } }) { Text("Set active: B") }
             }
 
-            Text("Boot without flashing (e.g. TWRP)", style = MaterialTheme.typography.labelLarge)
+            SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)")
             val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
                 if (uri == null) return@rememberLauncherForActivityResult
                 val path = SafFiles.copyToCache(context, uri, "twrp.img")
                 scope.launch { busy = true; ops.boot(File(path)); busy = false }
             }
-            OutlinedButton(onClick = { twrpPicker.launch(arrayOf("*/*")) }) { Text("Boot TWRP image") }
+            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { twrpPicker.launch(arrayOf("*/*")) }) { Text("Boot TWRP image") }
 
             Text(
-                "ADB Sideload isn't implemented here (needs the full ADB protocol, not fastboot) — " +
-                    "use a dedicated ADB app for ZIP sideloading.",
+                "ADB Sideload isn't implemented here (separate chunked transfer protocol, not a plain " +
+                    "shell command) — use a dedicated ADB app for ZIP sideloading.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
 
+            SectionHeading(Icons.Filled.Usb, "Recent activity")
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
             }

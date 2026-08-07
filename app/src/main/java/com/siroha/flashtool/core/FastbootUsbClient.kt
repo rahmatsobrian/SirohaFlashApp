@@ -41,16 +41,18 @@ class FastbootUsbClient(
         private const val BULK_TIMEOUT_MS = 30_000
 
         /**
-         * Heuristic fastboot interface match: a vendor-specific interface
-         * (class 0xFF) exposing exactly one bulk IN and one bulk OUT
-         * endpoint. This matches how virtually all fastboot-mode USB
-         * gadgets enumerate, without hardcoding a single vendor/product ID
-         * (target phones vary widely).
+         * Fastboot's USB interface descriptor per AOSP convention: vendor-specific
+         * class (0xFF), subclass 0x42, protocol 0x03, with exactly one bulk IN and
+         * one bulk OUT endpoint. Checking subclass/protocol (not just endpoint
+         * shape) matters because ADB interfaces have the identical class and
+         * endpoint shape but protocol 0x01 — without this check the two would be
+         * indistinguishable and one could grab the wrong interface.
          */
         fun findFastbootInterface(device: UsbDevice): UsbInterface? {
             for (i in 0 until device.interfaceCount) {
                 val intf = device.getInterface(i)
                 if (intf.interfaceClass != UsbConstants.USB_CLASS_VENDOR_SPEC) continue
+                if (intf.interfaceSubclass != 0x42 || intf.interfaceProtocol != 0x03) continue
                 var bulkIn = 0
                 var bulkOut = 0
                 for (e in 0 until intf.endpointCount) {

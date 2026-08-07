@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.siroha.flashtool.core.ExecutorProvider
+import com.siroha.flashtool.core.ThemePreferences
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.screens.AboutScreen
 import com.siroha.flashtool.ui.screens.AbPartitionScreen
@@ -41,6 +42,7 @@ object Routes {
 fun SirohaNavGraph(
     executorProvider: ExecutorProvider,
     logRepository: LogRepository,
+    themePreferences: ThemePreferences,
     navController: NavHostController = rememberNavController()
 ) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
@@ -86,7 +88,12 @@ fun SirohaNavGraph(
             LogsScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(executorProvider = executorProvider, onBack = { navController.popBackStack() })
+            SettingsScreen(
+                executorProvider = executorProvider,
+                themePreferences = themePreferences,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.ABOUT) {
             AboutScreen(onBack = { navController.popBackStack() })

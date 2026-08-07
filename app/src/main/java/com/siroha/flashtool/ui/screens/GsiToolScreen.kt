@@ -8,20 +8,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,10 +36,12 @@ import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.FastbootRebootTarget
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
+import com.siroha.flashtool.ui.components.SectionHeading
+import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -60,12 +62,7 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("GSI ROM Flash Tool") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
-            )
-        }
+        topBar = { SirohaTopBar("GSI ROM Flash Tool", icon = Icons.Filled.RocketLaunch, onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -76,32 +73,24 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                     "delete logical partitions → flash GSI → reboot to recovery.",
                 style = MaterialTheme.typography.bodyMedium
             )
-            Button(enabled = !busy, onClick = { scope.launch { busy = true; ops.connect(); busy = false } }) {
-                Text("Connect fastboot device")
-            }
-            OutlinedButton(onClick = { vbmetaPicker.launch(arrayOf("*/*")) }) { Text("Flash VBMETA (disable-verity)") }
-            OutlinedButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) {
-                Text("Reboot Fastboot → FastbootD")
-            }
-            OutlinedButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) {
-                Text("Check is-userspace")
-            }
-            OutlinedButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) {
-                Text("Erase system partition")
-            }
+            FilledTonalButton(
+                enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
+            ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
+
+            SectionHeading(Icons.Filled.RocketLaunch, "Flash steps")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_a"); busy = false } }) {
-                    Text("Delete product_a")
-                }
-                OutlinedButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_b"); busy = false } }) {
-                    Text("Delete product_b")
-                }
-            }
-            OutlinedButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
-            OutlinedButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) {
-                Text("Reboot → Recovery")
+                FilledTonalButton(onClick = { vbmetaPicker.launch(arrayOf("*/*")) }) { Text("Flash VBMETA (disable-verity)") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) { Text("Reboot → FastbootD") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) { Text("Check is-userspace") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) { Text("Erase system") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_a"); busy = false } }) { Text("Delete product_a") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_b"); busy = false } }) { Text("Delete product_b") }
+                FilledTonalButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
+                FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) { Text("Reboot → Recovery") }
             }
 
+            SectionHeading(Icons.Filled.Info, "Recent activity")
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
             }
