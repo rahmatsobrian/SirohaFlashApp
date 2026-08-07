@@ -2,6 +2,7 @@ package com.siroha.flashtool.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -85,7 +86,7 @@ fun BypassUblScreen(
                 }
             ) { Text(if (running) "Running..." else "Start Bypass UBL") }
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
             }
         }

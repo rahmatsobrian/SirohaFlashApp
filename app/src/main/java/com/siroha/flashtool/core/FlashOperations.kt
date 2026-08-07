@@ -4,12 +4,17 @@ import android.content.Context
 import com.siroha.flashtool.data.LogRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import java.io.File
 
 /**
- * Reimplements the operations flash.sh exposed through its Termux menu,
- * against whichever [ShellExecutor] (root or Shizuku) is currently active.
- * Every op streams progress into [LogRepository] so the Logs screen and any
- * exported .log file show exactly what ran and what came back.
+ * Reimplements the QDL/EDL operations flash.sh exposed through its Termux
+ * menu, against whichever [ShellExecutor] (root or Shizuku) is currently
+ * active. Every op streams progress into [LogRepository] so the Logs screen
+ * and any exported .log file show exactly what ran and what came back.
+ *
+ * Fastboot-based operations (menu_fastboot, menu_gsi, menu_ab, and the
+ * fastboot half of menu_frp) live in [FastbootOperations] instead, since
+ * they go over a completely different transport (raw USB, not a shell).
  */
 class FlashOperations(
     private val context: Context,
@@ -20,27 +25,25 @@ class FlashOperations(
         private const val TAG = "FlashOps"
     }
 
-    /** Menu 3 in flash.sh: "Cek Status UBL" — reads the unlock-bootloader flag. */
-    suspend fun checkUblStatus(): ShellResult {
-        log.info(TAG, "Checking bootloader unlock status...")
-        val result = executor.exec("getprop ro.boot.flash.locked; getprop ro.boot.verifiedbootstate")
-        if (result.isSuccess) {
-            log.success(TAG, "UBL status: ${result.stdout.joinToString(" | ")}")
-        } else {
-            log.error(TAG, "Failed to read UBL status: ${result.stderr.joinToString()}")
-        }
-        return result
-    }
-
     /**
-     * Menu 1 in flash.sh: "QDL Flash (EDL 9008)". Runs the bundled qdl binary
+     * Menu 2 in flash.sh: "QDL Flash (EDL 9008)". Runs the bundled qdl binary
      * against a firehose loader + rawprogram/patch XML set the user selects.
-     * Streams qdl's own progress output live.
+     *
+     * @param selectedLabels If non-null, only <program> entries in the
+     *   rawprogram XML whose label is in this set are flashed — this is what
+     *   powers the partition checklist in the QDL Flash screen. Pass null to
+     *   flash every partition in the file, matching flash.sh's default.
+     * @param storage "emmc" or "ufs", matching flash.sh's menu 1/2 choice.
+     * @param includeFolder Optional firmware folder passed as qdl's
+     *   `--include`, for images referenced by filename only in the XML.
      */
     fun runQdl(
         loaderPath: String,
         rawprogramPaths: List<String>,
-        patchPaths: List<String>
+        patchPaths: List<String>,
+        selectedLabels: Set<String>? = null,
+        storage: String = "emmc",
+        includeFolder: String? = null
     ): Flow<String> = flow {
         val qdl = BinaryManager.qdlPath(context)
         if (qdl == null) {
@@ -48,11 +51,36 @@ class FlashOperations(
             emit("[error] qdl binary missing for this ABI")
             return@flow
         }
+
+        val effectiveRawprogram = if (selectedLabels != null) {
+            rawprogramPaths.mapIndexed { i, path ->
+                val src = File(path)
+                val all = RawProgramXml.parsePartitions(src).map { it.label }.toSet()
+                if (selectedLabels == all) {
+                    path // nothing deselected — flash the original file as-is
+                } else {
+                    val filtered = File(context.cacheDir, "qdl_inputs/rawprogram_filtered_$i.xml")
+                    filtered.parentFile?.mkdirs()
+                    RawProgramXml.writeFiltered(src, selectedLabels, filtered)
+                    log.info(TAG, "Filtered rawprogram to ${selectedLabels.size}/${all.size} selected partitions")
+                    filtered.absolutePath
+                }
+            }
+        } else {
+            rawprogramPaths
+        }
+
         val args = buildList {
             add(qdl)
             add("--debug")
+            add("--storage")
+            add(storage)
+            if (includeFolder != null) {
+                add("--include")
+                add(includeFolder)
+            }
             add(loaderPath)
-            rawprogramPaths.forEach { add(it) }
+            effectiveRawprogram.forEach { add(it) }
             patchPaths.forEach { add(it) }
         }.joinToString(" ") { "'$it'" }
 
@@ -64,10 +92,26 @@ class FlashOperations(
         log.success(TAG, "QDL flash stream finished (verify exit status in log)")
     }
 
+    /** Menu 7 (manual command) in flash.sh's QDL menu: raw qdl arguments, unmodified. */
+    fun runQdlManual(rawArgs: String): Flow<String> = flow {
+        val qdl = BinaryManager.qdlPath(context)
+        if (qdl == null) {
+            log.error(TAG, "qdl binary not found for this device's ABI")
+            emit("[error] qdl binary missing for this ABI")
+            return@flow
+        }
+        val command = "'$qdl' $rawArgs"
+        log.info(TAG, "Running manual QDL command: $command")
+        executor.execStreaming(command).collect { line ->
+            log.info("qdl", line)
+            emit(line)
+        }
+    }
+
     /**
-     * Menu 7 in flash.sh: "Bypass UBL Redmi 4A (rolex)". Materializes the
+     * Menu 9 in flash.sh: "Bypass UBL Redmi 4A (rolex)". Materializes the
      * bundled firehose/patch assets and drives qdl exactly like the original
-     * bash implementation did.
+     * bash implementation did — always the full 3-partition set, no checklist.
      */
     fun runBypassUblRedmi4A(): Flow<String> = flow {
         log.info(TAG, "Preparing Redmi 4A (rolex) bypass-UBL assets...")
@@ -90,15 +134,15 @@ class FlashOperations(
         ).collect { emit(it) }
     }
 
-    /** Menu 6 in flash.sh: "FRP Remove". Left as a thin, explicit wrapper. */
-    suspend fun removeFrp(): ShellResult {
-        log.warn(TAG, "FRP removal requested — only run this on a device you own or are authorized to service.")
-        // flash.sh's original approach wipes the frp/config partition via dd from
-        // fastboot mode; that requires a bundled fastboot binary, which this repo
-        // did not include (only qdl/EDL binaries were provided). This surface is
-        // wired up end-to-end EXCEPT for the actual dd call — see README "Known
-        // gaps" for what to add once you supply fastboot binaries per ABI.
-        log.error(TAG, "No fastboot binary bundled — see README 'Known gaps' before enabling this.")
-        return ShellResult(-1, emptyList(), listOf("fastboot binary not bundled"))
+    /** Menu 3/4 in flash.sh's QDL menu: EDL/ADB device presence checks. */
+    suspend fun checkEdlDevice(): List<String> {
+        val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isEdlDevice(it) }
+        return if (devices.isEmpty()) {
+            log.warn(TAG, "No EDL (9008) device detected.")
+            emptyList()
+        } else {
+            devices.forEach { log.success(TAG, "EDL device: ${it.deviceName} (${it.vendorId}:${it.productId})") }
+            devices.map { it.deviceName }
+        }
     }
 }
