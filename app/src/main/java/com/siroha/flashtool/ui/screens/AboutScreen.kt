@@ -106,10 +106,11 @@ fun AboutScreen(onBack: () -> Unit) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         SectionHeading(Icons.Filled.Block, "Not yet implemented")
                         Text(
-                            "• ADB sideload (separate chunked transfer protocol, not a plain shell command)\n" +
-                                "• MiTool (Xiaomi unlock/flash/assistant) — depends on Python + Xiaomi's " +
+                            "• MiTool (Xiaomi unlock/flash/assistant) — depends on Python + Xiaomi's " +
                                 "official account-based unlock API; reference scripts kept in the repo's " +
-                                "mitool_reference/ folder but not wired into the app",
+                                "mitool_reference/ folder but not wired into the app\n" +
+                                "• wipe-super — the real fastboot host tool's multi-command sequence for " +
+                                "resizing dynamic partitions, not a single protocol command",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }

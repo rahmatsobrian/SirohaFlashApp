@@ -81,8 +81,18 @@ fun SirohaFlashToolTheme(
     if (!view.isInEditMode) {
         androidx.compose.runtime.SideEffect {
             val window = (view.context as Activity).window
+            // Explicit color setters still matter on API 29-34 (and are a
+            // harmless no-op on 35+, where edge-to-edge makes both bars
+            // transparent and the root Surface's own background — already
+            // colorScheme.surface, including true black for AMOLED — shows
+            // through instead). Setting BOTH bars, not just the status bar,
+            // is what was missing before: the nav bar previously kept
+            // whatever the OS default was instead of following the theme.
             window.statusBarColor = colorScheme.surface.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            window.navigationBarColor = colorScheme.surface.toArgb()
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = !darkTheme
+            insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

@@ -15,19 +15,23 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   first, then Shizuku, automatically (`core/ExecutorProvider.kt`).
 - **ADB-over-USB, implemented from scratch** (`core/AdbUsbClient.kt` +
   `core/AdbKeyManager.kt`) — message framing, the CNXN/AUTH handshake, RSA
-  keypair generation, and Android's own non-standard public-key wire format
-  (`RSAPublicKey` C struct, base64-encoded), plus `adb shell` command
-  execution. Backs the Samsung/SPRD FRP methods on the FRP screen.
-  **Not implemented:** ADB sideload — that's a separate chunked/flow-
-  controlled transfer protocol, not a plain shell command.
-  ⚠️ **The public-key wire encoding has not been exercised against a real
-  device's "Allow USB debugging?" dialog** — there was no USB hardware
-  available in the environment this was written in. The Montgomery math
-  (n0inv, R² mod N) is standard and should be correct; the struct layout is
+  keypair generation, Android's own non-standard public-key wire format
+  (`RSAPublicKey` C struct, base64-encoded), `adb shell` command execution,
+  **and ADB sideload** (the `sideload:<size>` block-request protocol used
+  for pushing a ZIP to a device already in recovery — distinct from plain
+  shell commands in that the device drives the exchange by requesting
+  specific 64KiB blocks). Backs the Samsung/SPRD FRP methods and the
+  Sideload ZIP buttons on the Fastboot/A-B/FRP screens.
+  ⚠️ **None of this has been exercised against a real device's "Allow USB
+  debugging?" dialog or a real recovery** — there was no USB hardware
+  available in the environment this was written in. The handshake's
+  Montgomery math (n0inv, R² mod N) is standard and should be correct; the
+  public-key struct layout and the sideload block-request format are both
   reconstructed from memory of the AOSP C source. If first-time pairing
   never completes (device keeps re-sending AUTH TOKEN after you send your
-  public key), this is the first place to check — send back what you see
-  and it can be debugged from there.
+  public key) or sideload stalls/errors partway through, these are the
+  first places to check — send back what you see (the in-app Logs screen
+  has protocol-level detail) and it can be debugged from there.
 - `qdl` binaries bundled as `jniLibs/<abi>/libqdl.so`.
 - **QDL Flash (EDL 9008)** — loader/rawprogram/patch XML picker, eMMC/UFS
   storage choice, and a **partition checklist** parsed from the rawprogram
@@ -38,7 +42,7 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   Same hardware-testing caveat as ADB above: written carefully against the
   public protocol spec, not yet verified against real EDL/fastboot hardware.
 - **FRP Remove Tool** — SPRD method via fastboot (`erase persist`); Samsung
-  and SPRD/MTK methods via the new ADB client.
+  and SPRD/MTK methods via the ADB client.
 - **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
 - CI workflow — builds debug+release, tests, lint, zero repo secrets,
@@ -46,8 +50,10 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## Known gaps
 
-- **ADB sideload** and **wipe-super** — see above / earlier notes; both are
-  separate, more complex protocols than plain command/response.
+- **wipe-super** — the real fastboot host tool's multi-command sequence for
+  resizing dynamic partitions from a `super_empty.img`, not a single
+  protocol command. `deleteLogicalPartition` for named partitions works
+  since that IS a single command.
 - **MiTool** (Xiaomi unlock/flash/assistant) needs Python + Xiaomi's
   official account-based unlock API — out of scope for a native rewrite.
   Original scripts kept in `mitool_reference/`, not compiled into the app.

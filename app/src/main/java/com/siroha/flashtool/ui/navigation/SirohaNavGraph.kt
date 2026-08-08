@@ -1,6 +1,7 @@
 package com.siroha.flashtool.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,6 +39,20 @@ object Routes {
     const val ABOUT = "about"
 }
 
+/**
+ * Navigates only if the current screen has actually finished becoming the
+ * resumed destination. Without this guard, two taps on two different Home
+ * menu cards in quick succession both fire before the first navigate()
+ * finishes transitioning, pushing BOTH destinations onto the back stack —
+ * so pressing back from the second one lands on the first one instead of
+ * Home. This is the pattern Google's own Compose Navigation docs recommend
+ * for debouncing rapid/double taps.
+ */
+private fun NavHostController.navigateSafely(route: String) {
+    val isResumed = currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED
+    if (isResumed) navigate(route)
+}
+
 @Composable
 fun SirohaNavGraph(
     executorProvider: ExecutorProvider,
@@ -47,7 +62,7 @@ fun SirohaNavGraph(
 ) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
-            HomeScreen(onNavigate = { route -> navController.navigate(route) })
+            HomeScreen(onNavigate = { route -> navController.navigateSafely(route) })
         }
         composable(Routes.QDL_FLASH) {
             QdlFlashScreen(

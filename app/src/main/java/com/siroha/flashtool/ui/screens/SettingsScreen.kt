@@ -93,7 +93,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                             Text("Material You dynamic color", style = MaterialTheme.typography.bodyLarge)
                             Text("Match the app's palette to your wallpaper (Android 12+)", style = MaterialTheme.typography.bodyMedium)
                         }

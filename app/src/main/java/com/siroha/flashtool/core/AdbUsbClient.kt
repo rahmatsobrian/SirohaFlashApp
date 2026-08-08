@@ -153,10 +153,7 @@ class AdbUsbClient(
     /**
      * Opens an ADB stream to [service] (e.g. "shell:content insert ..."),
      * collects every WRTE payload until the device closes the stream, and
-     * returns the concatenated output. This does NOT implement the
-     * "sideload:<size>" flow-controlled transfer protocol — that's a
-     * separate, more complex chunked handshake and is intentionally out of
-     * scope here (see README).
+     * returns the concatenated output.
      */
     fun runService(service: String): String {
         val localId = nextLocalId++
@@ -183,6 +180,91 @@ class AdbUsbClient(
             }
         }
         return output.toString()
+    }
+
+    sealed class SideloadResult {
+        object Success : SideloadResult()
+        data class Rejected(val reason: String) : SideloadResult()
+        data class Error(val reason: String) : SideloadResult()
+    }
+
+    /**
+     * Implements ADB's `sideload:<size>` protocol: opens the stream, then
+     * repeatedly answers the device's block requests until it reports
+     * "DONEDONE" (success) or "FAILFAIL" (failure). This is the protocol
+     * `adb sideload some.zip` uses against a device in recovery — distinct
+     * from a plain `shell:` command in that the DEVICE drives the exchange
+     * by requesting specific 64KiB blocks by number, not just streaming
+     * output to the host.
+     *
+     * Like the rest of this from-scratch ADB implementation, this exact
+     * request/response shape is reconstructed from public knowledge of
+     * AOSP's minadbd sideload handler rather than tested against a real
+     * recovery — see README for the same caveat that applies to the
+     * handshake/key encoding.
+     */
+    fun sideload(
+        file: java.io.File,
+        blockSize: Int = 64 * 1024,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> }
+    ): SideloadResult {
+        val localId = nextLocalId++
+        val total = file.length()
+        sendMessage(A_OPEN, localId, 0, "sideload:$total\u0000".toByteArray())
+
+        var remoteId = 0
+        val first = readMessage() ?: return SideloadResult.Error("no response opening sideload stream")
+        when (first.command) {
+            A_OKAY -> remoteId = first.arg0
+            A_CLSE -> return SideloadResult.Rejected("device closed the sideload stream immediately — is it actually in recovery/sideload mode?")
+            else -> return SideloadResult.Error("unexpected response 0x${first.command.toString(16)} opening sideload")
+        }
+
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            while (true) {
+                val request = readMessage() ?: return SideloadResult.Error("connection lost waiting for block request")
+                when (request.command) {
+                    A_CLSE -> return SideloadResult.Error("device closed the stream unexpectedly")
+                    A_WRTE -> {
+                        remoteId = request.arg0
+                        sendMessage(A_OKAY, localId, remoteId) // ack the request packet itself
+
+                        val text = String(request.data, Charsets.US_ASCII).trimEnd('\u0000')
+                        when {
+                            text.startsWith("DONEDONE") -> {
+                                sendMessage(A_CLSE, localId, remoteId)
+                                return SideloadResult.Success
+                            }
+                            text.startsWith("FAILFAIL") -> {
+                                sendMessage(A_CLSE, localId, remoteId)
+                                return SideloadResult.Rejected("device reported a failure partway through")
+                            }
+                            else -> {
+                                val blockNum = text.take(8).trim().toLongOrNull()
+                                    ?: return SideloadResult.Error("malformed block request: '$text'")
+                                val offset = blockNum * blockSize
+                                if (offset >= total) return SideloadResult.Error("device requested block $blockNum past end of file")
+                                val chunkSize = minOf(blockSize.toLong(), total - offset).toInt()
+                                val chunk = ByteArray(chunkSize)
+                                raf.seek(offset)
+                                raf.readFully(chunk)
+
+                                sendMessage(A_WRTE, localId, remoteId, chunk)
+                                onProgress(offset + chunkSize, total)
+
+                                // Flow control: wait for the device's OKAY of THIS
+                                // data write before reading its next block request.
+                                val ack = readMessage() ?: return SideloadResult.Error("no ack for block $blockNum")
+                                if (ack.command != A_OKAY) return SideloadResult.Error("expected OKAY ack for block $blockNum, got 0x${ack.command.toString(16)}")
+                            }
+                        }
+                    }
+                    else -> { /* ignore unrelated traffic on this stream */ }
+                }
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        return SideloadResult.Error("sideload loop exited unexpectedly")
     }
 
     // ---- low-level framing ----

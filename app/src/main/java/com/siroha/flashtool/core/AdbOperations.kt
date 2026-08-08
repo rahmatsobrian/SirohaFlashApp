@@ -81,4 +81,36 @@ class AdbOperations(
         if (output.isNotBlank()) log.info(TAG, output.trim())
         output
     }
+
+    /** Sideloads a ZIP (e.g. a Magisk or OTA package) to a device already booted into recovery. */
+    suspend fun sideload(file: java.io.File): Boolean = withContext(Dispatchers.IO) {
+        val c = client
+        if (c == null) {
+            log.error(TAG, "Not connected — call connect() first.")
+            return@withContext false
+        }
+        log.info(TAG, "Sideloading ${file.name} (${file.length()} bytes)...")
+        var lastLoggedPercent = -1
+        val result = c.sideload(file) { sent, total ->
+            val percent = if (total > 0) ((sent * 100) / total).toInt() else 0
+            if (percent != lastLoggedPercent && percent % 10 == 0) {
+                log.info(TAG, "  sideload: $percent% ($sent/$total bytes)")
+                lastLoggedPercent = percent
+            }
+        }
+        when (result) {
+            is AdbUsbClient.SideloadResult.Success -> {
+                log.success(TAG, "Sideload complete.")
+                true
+            }
+            is AdbUsbClient.SideloadResult.Rejected -> {
+                log.error(TAG, "Sideload rejected: ${result.reason}")
+                false
+            }
+            is AdbUsbClient.SideloadResult.Error -> {
+                log.error(TAG, "Sideload error: ${result.reason}")
+                false
+            }
+        }
+    }
 }

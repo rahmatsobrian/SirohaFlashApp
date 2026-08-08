@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
@@ -58,7 +61,9 @@ fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ops = remember { FastbootOperations(context, logRepository) }
+    val adb = remember { AdbOperations(context, logRepository) }
     var busy by remember { mutableStateOf(false) }
+    var adbConnected by remember { mutableStateOf(false) }
     val entries by logRepository.entries.collectAsState()
 
     Scaffold(
@@ -105,12 +110,28 @@ fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
             }
             FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { twrpPicker.launch(arrayOf("*/*")) }) { Text("Boot TWRP image") }
 
-            Text(
-                "ADB Sideload isn't implemented here (separate chunked transfer protocol, not a plain " +
-                    "shell command) — use a dedicated ADB app for ZIP sideloading.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
+            SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
+            val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                val path = SafFiles.copyToCache(context, uri, "sideload.zip")
+                scope.launch { busy = true; adb.sideload(File(path)); busy = false }
+            }
+            FilledTonalButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
+            ) {
+                Icon(Icons.Filled.Usb, contentDescription = null)
+                Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+            }
+            FilledTonalButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+            ) {
+                Icon(Icons.Filled.CloudUpload, contentDescription = null)
+                Text("  Sideload ZIP")
+            }
 
             SectionHeading(Icons.Filled.Usb, "Recent activity")
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

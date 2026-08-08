@@ -1,7 +1,10 @@
 package com.siroha.flashtool.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,13 +24,17 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.siroha.flashtool.ui.components.SirohaTopBar
@@ -84,7 +91,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
     ) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(padding)
         ) {
             item {
@@ -96,7 +103,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 // menu items.
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     ListItem(
-                        colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                         headlineContent = { Text("Two transports, one app", style = MaterialTheme.typography.titleMedium) },
                         supportingContent = {
                             Text(
@@ -110,28 +117,34 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                 }
             }
 
-            sections.forEach { section ->
-                item {
-                    androidx.compose.foundation.layout.Row(
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 4.dp)
-                    ) {
-                        Icon(section.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(2.dp))
-                        Text(section.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                items(section.entries) { entry ->
-                    Card(
-                        onClick = { onNavigate(entry.route) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        ListItem(
-                            headlineContent = { Text(entry.title) },
-                            supportingContent = { Text(entry.subtitle) },
-                            leadingContent = { Icon(entry.icon, contentDescription = null) }
-                        )
+            // Each menu group is its own physically separate Card — not just
+            // a text label — so the boundary between e.g. "Qualcomm EDL" and
+            // "Fastboot" is unmistakable rather than reading as one long list.
+            items(sections) { section ->
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp)
+                        ) {
+                            Icon(section.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(section.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                        section.entries.forEachIndexed { index, entry ->
+                            ListItem(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigate(entry.route) },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                headlineContent = { Text(entry.title) },
+                                supportingContent = { Text(entry.subtitle) },
+                                leadingContent = { Icon(entry.icon, contentDescription = null) }
+                            )
+                            if (index != section.entries.lastIndex) {
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            }
+                        }
                     }
                 }
             }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.FastbootRebootTarget
 import com.siroha.flashtool.core.SafFiles
@@ -47,6 +49,7 @@ import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
+import java.io.File
 
 /** One "pick a file, flash it to this partition" row — the fastboot equivalent of flash_partition() in flash.sh. */
 @Composable
@@ -60,7 +63,7 @@ private fun FlashPartitionRow(label: String, partition: String, ops: () -> Fastb
             busy(true)
             val op = ops()
             if (op == null) { busy(false); return@launch }
-            op.flashPartition(partition, java.io.File(path))
+            op.flashPartition(partition, File(path))
             busy(false)
         }
     }
@@ -73,10 +76,18 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ops = remember { FastbootOperations(context, logRepository) }
+    val adb = remember { AdbOperations(context, logRepository) }
     var connected by remember { mutableStateOf(false) }
+    var adbConnected by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var manualCommand by remember { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
+
+    val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val path = SafFiles.copyToCache(context, uri, "sideload.zip")
+        scope.launch { busy = true; adb.sideload(File(path)); busy = false }
+    }
 
     Scaffold(
         topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) }
@@ -123,33 +134,51 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
             }
 
             SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
-            Card {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = manualCommand,
                         onValueChange = { manualCommand = it },
+                        label = { Text("Command") },
                         placeholder = { Text("getvar:product") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    IconButton(
-                        enabled = manualCommand.isNotBlank() && !busy,
-                        onClick = { scope.launch { busy = true; ops.rawCommand(manualCommand.trim()); busy = false } }
-                    ) { Icon(Icons.Filled.Send, contentDescription = "Send") }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        FilledTonalButton(
+                            enabled = manualCommand.isNotBlank() && !busy,
+                            onClick = { scope.launch { busy = true; ops.rawCommand(manualCommand.trim()); busy = false } }
+                        ) {
+                            Icon(Icons.Filled.Send, contentDescription = null)
+                            Text("  Send")
+                        }
+                    }
                 }
             }
 
+            SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
             Text(
-                "ADB Sideload isn't implemented — it needs the full ADB protocol (RSA key auth " +
-                    "handshake, chunked transfer), a separate undertaking from fastboot's simple " +
-                    "command/response protocol. Use a dedicated ADB app for sideloading for now.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
+                "Uses this app's from-scratch ADB-over-USB client, with the target already booted " +
+                    "into recovery/sideload mode. First connection needs \"Allow USB debugging\" on " +
+                    "the target's screen, then tap Connect again.",
+                style = MaterialTheme.typography.bodyMedium
             )
+            FilledTonalButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
+            ) {
+                Icon(Icons.Filled.Usb, contentDescription = null)
+                Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+            }
+            FilledTonalButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+            ) {
+                Icon(Icons.Filled.CloudUpload, contentDescription = null)
+                Text("  Sideload ZIP")
+            }
 
             SectionHeading(Icons.Filled.Info, "Recent activity")
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
