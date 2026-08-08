@@ -2,6 +2,7 @@ package com.siroha.flashtool.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -120,4 +121,4 @@ fun AboutScreen(onBack: () -> Unit) {
 
 /** Row-level click target with no ripple-padding offset, keeping link rows flush with body text above them. */
 private fun Modifier.clickableOpen(onClick: () -> Unit): Modifier =
-    this.then(androidx.compose.foundation.clickable(onClick = onClick))
+    this.then(Modifier.clickable(onClick = onClick))
