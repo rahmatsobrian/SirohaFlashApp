@@ -115,6 +115,51 @@ class FastbootOperations(
         handleResult(c.command("delete-logical-partition:$name"), "delete-logical-partition $name")
     }
 
+    suspend fun createLogicalPartition(name: String, sizeBytes: Long): Boolean = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        handleResult(c.command("create-logical-partition:$name:$sizeBytes"), "create-logical-partition $name ($sizeBytes bytes)")
+    }
+
+    suspend fun resizeLogicalPartition(name: String, sizeBytes: Long): Boolean = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        handleResult(c.command("resize-logical-partition:$name:$sizeBytes"), "resize-logical-partition $name ($sizeBytes bytes)")
+    }
+
+    /**
+     * A bounded, honestly-scoped "wipe super" for GSI flashing: deletes the
+     * OPTIONAL dynamic partitions (product, system_ext, odm — the ones
+     * every community GSI guide has you clear out, on both A/B slots when
+     * present) so a GSI can claim that space. This is NOT the same thing as
+     * the real `fastboot` host tool's `--wipe`/`update --wipe`, which parses
+     * a super_empty.img's liblp metadata and reconciles the on-device
+     * partition table against it byte-for-byte — that's a substantial
+     * binary-format parser in its own right and isn't implemented here.
+     * vendor/system/boot are deliberately left alone since GSI flashing
+     * overwrites system directly rather than deleting it first, and wiping
+     * vendor can leave a device unable to boot.
+     */
+    suspend fun wipeOptionalDynamicPartitions(): List<Pair<String, Boolean>> = withContext(Dispatchers.IO) {
+        val targets = listOf(
+            "product", "product_a", "product_b",
+            "system_ext", "system_ext_a", "system_ext_b",
+            "odm", "odm_a", "odm_b"
+        )
+        targets.map { name ->
+            val c = client
+            if (c == null) {
+                logAndReturnDisconnected()
+                name to false
+            } else {
+                // A partition that doesn't exist on this device/layout will
+                // just FAIL harmlessly (e.g. odm on a device with no odm
+                // partition, or _a/_b on a non-A/B device) — that's expected
+                // and not treated as a fatal error for the batch.
+                val ok = handleResult(c.command("delete-logical-partition:$name"), "delete-logical-partition $name")
+                name to ok
+            }
+        }
+    }
+
     suspend fun setActiveSlot(slot: String): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
         handleResult(c.command("set_active:$slot"), "set_active $slot")
@@ -140,6 +185,25 @@ class FastbootOperations(
     suspend fun rawCommand(command: String): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
         handleResult(c.command(command), command)
+    }
+
+    /** Same as [rawCommand], but also returns the raw response text so a UI can show it inline immediately. */
+    suspend fun rawCommandWithResponse(command: String): String = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext "Not connected — tap Connect first." }
+        when (val result = c.command(command)) {
+            is FastbootUsbClient.FastbootResponse.Okay -> {
+                log.success(TAG, "$command: OK${if (result.message.isNotBlank()) " (${result.message})" else ""}")
+                "OK ${result.message}".trim()
+            }
+            is FastbootUsbClient.FastbootResponse.Fail -> {
+                log.error(TAG, "$command: FAILED — ${result.message}")
+                "FAILED ${result.message}".trim()
+            }
+            is FastbootUsbClient.FastbootResponse.Error -> {
+                log.error(TAG, "$command: ERROR — ${result.reason}")
+                "ERROR ${result.reason}".trim()
+            }
+        }
     }
 
     suspend fun reboot(target: FastbootRebootTarget): Boolean = withContext(Dispatchers.IO) {

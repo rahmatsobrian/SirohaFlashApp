@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.RocketLaunch
@@ -34,7 +35,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.siroha.flashtool.ui.components.SirohaTopBar
@@ -64,6 +64,12 @@ private val sections = listOf(
             MenuEntry("GSI ROM Flash Tool", "Dynamic partitions: erase system, flash GSI", Icons.Filled.RocketLaunch, Routes.GSI_TOOL),
             MenuEntry("A/B Partition Tool", "Slot-aware flashing, active slot switch", Icons.Filled.SwapHoriz, Routes.AB_PARTITION),
             MenuEntry("FRP Remove Tool", "SPRD via fastboot; Samsung/SPRD-MTK via ADB", Icons.Filled.Lock, Routes.FRP_TOOL),
+        )
+    ),
+    MenuSection(
+        Icons.Filled.Extension, "Xiaomi (MiTool)",
+        listOf(
+            MenuEntry("MiTool", "Flash fastboot ROM by folder, extract a file from a ROM ZIP", Icons.Filled.Extension, Routes.MITOOL),
         )
     ),
     MenuSection(
@@ -132,15 +138,26 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
                             Text(section.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         }
                         section.entries.forEachIndexed { index, entry ->
-                            ListItem(
+                            // A custom Row instead of ListItem: Material3's ListItem
+                            // spec top-aligns the leading icon whenever there's a
+                            // 2-line (headline + supporting) body, which reads oddly
+                            // when the subtitle wraps to two lines — this keeps the
+                            // icon vertically centered against the whole text block
+                            // regardless of how many lines it wraps to.
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onNavigate(entry.route) },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                headlineContent = { Text(entry.title) },
-                                supportingContent = { Text(entry.subtitle) },
-                                leadingContent = { Icon(entry.icon, contentDescription = null) }
-                            )
+                                    .clickable { onNavigate(entry.route) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Icon(entry.icon, contentDescription = null)
+                                Column {
+                                    Text(entry.title, style = MaterialTheme.typography.bodyLarge)
+                                    Text(entry.subtitle, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
                             if (index != section.entries.lastIndex) {
                                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                             }

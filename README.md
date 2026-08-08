@@ -41,8 +41,19 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   from-scratch fastboot-over-USB protocol client (`core/FastbootUsbClient.kt`).
   Same hardware-testing caveat as ADB above: written carefully against the
   public protocol spec, not yet verified against real EDL/fastboot hardware.
+  GSI screen includes a **"Wipe Super"** action (deletes the optional
+  dynamic partitions — product/system_ext/odm — that every community GSI
+  guide has you clear; see "Known gaps" for what this deliberately doesn't
+  do).
 - **FRP Remove Tool** — SPRD method via fastboot (`erase persist`); Samsung
   and SPRD/MTK methods via the ADB client.
+- **MiTool** — 2 of the original's 4 tools, reimplemented natively:
+  **Flash Fastboot ROM** (pick a folder, every `*.img` gets fastboot-flashed
+  to a same-named partition — exactly how Xiaomi's own `flash_all.sh`
+  works, so no per-device partition list needed) and **Firmware Content
+  Extractor** (download a ROM ZIP, pull out one named file). The other two
+  — **Unlock Bootloader** and **Mi Assistant** — are NOT here; see "Known
+  gaps" for why that's a hard boundary, not a "not yet."
 - **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
 - CI workflow — builds debug+release, tests, lint, zero repo secrets,
@@ -50,13 +61,21 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## Known gaps
 
-- **wipe-super** — the real fastboot host tool's multi-command sequence for
-  resizing dynamic partitions from a `super_empty.img`, not a single
-  protocol command. `deleteLogicalPartition` for named partitions works
-  since that IS a single command.
-- **MiTool** (Xiaomi unlock/flash/assistant) needs Python + Xiaomi's
-  official account-based unlock API — out of scope for a native rewrite.
-  Original scripts kept in `mitool_reference/`, not compiled into the app.
+- **wipe-super**, real version — the actual `fastboot` host tool parses a
+  `super_empty.img`'s binary `liblp` metadata and reconciles the on-device
+  dynamic-partition table against it command-by-command; that metadata
+  format is a substantial parser in its own right and isn't implemented.
+  The GSI screen's "Wipe Super" button instead deletes the well-known
+  *optional* partitions (product/system_ext/odm, both slots) that GSI
+  guides always have you clear — correct for the common case, not a
+  general-purpose super_empty.img-driven wipe.
+- **MiTool's Unlock Bootloader and Mi Assistant** — genuinely not
+  implementable, not just deferred. Unlock Bootloader needs Xiaomi's
+  private, account-authenticated unlock servers. Mi Assistant talks to an
+  external `miasst_termux` binary that was *never open-sourced even in the
+  original project* — there's no protocol spec to reimplement against at
+  all, unlike ADB/fastboot which are public. Reference scripts for all four
+  original tools are kept in `mitool_reference/` regardless.
 - **`menu_install`** in flash.sh was Termux package management — replaced
   with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).
 - Nothing in this app has been compile-tested or hardware-tested in the

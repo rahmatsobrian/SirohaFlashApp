@@ -18,6 +18,7 @@ import com.siroha.flashtool.ui.screens.GsiToolScreen
 import com.siroha.flashtool.ui.screens.GuideScreen
 import com.siroha.flashtool.ui.screens.HomeScreen
 import com.siroha.flashtool.ui.screens.LogsScreen
+import com.siroha.flashtool.ui.screens.MiToolScreen
 import com.siroha.flashtool.ui.screens.QdlFlashScreen
 import com.siroha.flashtool.ui.screens.RequirementsScreen
 import com.siroha.flashtool.ui.screens.SettingsScreen
@@ -34,6 +35,7 @@ object Routes {
     const val REQUIREMENTS = "requirements"
     const val GUIDE = "guide"
     const val BYPASS_UBL = "bypass_ubl"
+    const val MITOOL = "mitool"
     const val LOGS = "logs"
     const val SETTINGS = "settings"
     const val ABOUT = "about"
@@ -98,6 +100,9 @@ fun SirohaNavGraph(
                 logRepository = logRepository,
                 onBack = { navController.popBackStack() }
             )
+        }
+        composable(Routes.MITOOL) {
+            MiToolScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
         }
         composable(Routes.LOGS) {
             LogsScreen(logRepository = logRepository, onBack = { navController.popBackStack() })

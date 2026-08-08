@@ -104,13 +104,18 @@ fun AboutScreen(onBack: () -> Unit) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        SectionHeading(Icons.Filled.Block, "Not yet implemented")
+                        SectionHeading(Icons.Filled.Block, "Not implementable here")
                         Text(
-                            "• MiTool (Xiaomi unlock/flash/assistant) — depends on Python + Xiaomi's " +
-                                "official account-based unlock API; reference scripts kept in the repo's " +
-                                "mitool_reference/ folder but not wired into the app\n" +
-                                "• wipe-super — the real fastboot host tool's multi-command sequence for " +
-                                "resizing dynamic partitions, not a single protocol command",
+                            "• MiTool's \"Unlock Bootloader\" and \"Mi Assistant\" — both depend on " +
+                                "Xiaomi's private, account-based servers (and, for Mi Assistant, an " +
+                                "external binary the original project never open-sourced either). " +
+                                "There's no public spec to build against, unlike ADB/fastboot. The two " +
+                                "MiTool features that don't need Xiaomi's private API (fastboot ROM " +
+                                "flashing, firmware content extraction) are implemented — see the MiTool " +
+                                "screen.\n" +
+                                "• wipe-super — the real fastboot host tool's binary super_empty.img " +
+                                "metadata parser, not a single protocol command. The GSI screen's \"Wipe " +
+                                "Super\" button covers the common case (optional partitions) instead.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }

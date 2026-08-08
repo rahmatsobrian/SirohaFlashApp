@@ -81,6 +81,7 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
     var adbConnected by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var manualCommand by remember { mutableStateOf("") }
+    var manualResult by remember { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
     val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -147,11 +148,31 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         FilledTonalButton(
                             enabled = manualCommand.isNotBlank() && !busy,
-                            onClick = { scope.launch { busy = true; ops.rawCommand(manualCommand.trim()); busy = false } }
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    manualResult = ops.rawCommandWithResponse(manualCommand.trim())
+                                    busy = false
+                                }
+                            }
                         ) {
                             Icon(Icons.Filled.Send, contentDescription = null)
                             Text("  Send")
                         }
+                    }
+                    // Immediate inline feedback — without this, a successful or failed
+                    // command only showed up in "Recent activity" below, which reads
+                    // as "nothing happened" unless you scroll down to check.
+                    if (manualResult.isNotBlank()) {
+                        Text(
+                            manualResult,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (manualResult.startsWith("OK")) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
                     }
                 }
             }

@@ -84,8 +84,17 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) { Text("Reboot → FastbootD") }
                 FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) { Text("Check is-userspace") }
                 FilledTonalButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) { Text("Erase system") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_a"); busy = false } }) { Text("Delete product_a") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.deleteLogicalPartition("product_b"); busy = false } }) { Text("Delete product_b") }
+                FilledTonalButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            val results = ops.wipeOptionalDynamicPartitions()
+                            val ok = results.count { it.second }
+                            logRepository.info("GSI", "Wipe optional dynamic partitions: $ok/${results.size} succeeded (failures on partitions this device doesn't have are expected)")
+                            busy = false
+                        }
+                    }
+                ) { Text("Wipe Super (product/system_ext/odm)") }
                 FilledTonalButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
                 FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) { Text("Reboot → Recovery") }
             }
