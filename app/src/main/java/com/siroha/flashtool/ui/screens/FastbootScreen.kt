@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,8 +81,8 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
     var connected by remember { mutableStateOf(false) }
     var adbConnected by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var manualCommand by remember { mutableStateOf("") }
-    var manualResult by remember { mutableStateOf("") }
+    var manualCommand by rememberSaveable { mutableStateOf("") }
+    var manualResult by rememberSaveable { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
     val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -137,14 +138,38 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
             SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Type a raw fastboot command exactly as the wire protocol expects " +
+                            "(colon-separated, e.g. getvar:product) — not the CLI-style spaced form.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    // No floating `label` here on purpose — the label cutout in the
+                    // border can look like a rendering glitch on a small phone
+                    // screen. A plain caption above + an in-field leading icon reads
+                    // more clearly as "this is a command box."
                     OutlinedTextField(
                         value = manualCommand,
                         onValueChange = { manualCommand = it },
-                        label = { Text("Command") },
                         placeholder = { Text("getvar:product") },
+                        leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                         singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge,
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    // Live echo: proves keystrokes are actually reaching the state,
+                    // rather than only trusting what the text field itself renders.
+                    if (manualCommand.isNotEmpty()) {
+                        Text(
+                            "Will send: $manualCommand",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         FilledTonalButton(
                             enabled = manualCommand.isNotBlank() && !busy,
