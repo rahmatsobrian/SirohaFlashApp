@@ -71,115 +71,135 @@ fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = { SirohaTopBar("MiTool", icon = Icons.Filled.Extension, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SectionHeading(Icons.Filled.Info, "Two of four MiTool tools", color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(
-                        "\"Unlock Bootloader\" and \"Mi Assistant\" both need Xiaomi's private, " +
-                            "account-based servers (and an undocumented external binary the original " +
-                            "project never open-sourced either) — not implementable here. What's below " +
-                            "are the two tools that don't depend on Xiaomi's private API.",
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SectionHeading(Icons.Filled.Info, "Fastboot ROM tools", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(
+                            "Mi Unlock has moved to its own screen (from the home menu). What's below " +
+                                "are the two remaining tools that don't need Xiaomi's private account API " +
+                                "— \"Mi Assistant\" is the only one left out, since it depends on an " +
+                                "external binary that was never open-sourced anywhere.",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
 
-            SectionHeading(Icons.Filled.RocketLaunch, "Flash Fastboot ROM")
-            Text(
-                "Pick the folder you extracted a Xiaomi fastboot ROM into (the one containing " +
-                    "images/). Every *.img found gets matched to a same-named partition — exactly " +
-                    "how Xiaomi's own flash_all.sh scripts work.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { folderPicker.launch(null) }) {
-                Text(if (images.isEmpty()) "Pick ROM folder" else "${images.size} image(s) found — pick a different folder")
+            item {
+                SectionHeading(Icons.Filled.RocketLaunch, "Flash Fastboot ROM")
+                Text(
+                    "Pick the folder you extracted a Xiaomi fastboot ROM into (the one containing " +
+                        "images/). Every *.img found gets matched to a same-named partition — exactly " +
+                        "how Xiaomi's own flash_all.sh scripts work.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            item {
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { folderPicker.launch(null) }) {
+                    Text(if (images.isEmpty()) "Pick ROM folder" else "${images.size} image(s) found — pick a different folder")
+                }
             }
 
             if (images.isNotEmpty()) {
-                Card {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        images.forEach { image ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = image.partitionName in selected,
-                                    onCheckedChange = { checked ->
-                                        selected = if (checked) selected + image.partitionName else selected - image.partitionName
-                                    }
-                                )
-                                Text("${image.partitionName}  (${image.sizeBytes / 1024 / 1024} MB)", style = MaterialTheme.typography.bodyMedium)
+                item {
+                    Card {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            images.forEach { image ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = image.partitionName in selected,
+                                        onCheckedChange = { checked ->
+                                            selected = if (checked) selected + image.partitionName else selected - image.partitionName
+                                        }
+                                    )
+                                    Text("${image.partitionName}  (${image.sizeBytes / 1024 / 1024} MB)", style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
                         }
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Filled.Lock, contentDescription = null)
-                    Text("  Lock bootloader after flashing", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = lockAfter, onCheckedChange = { lockAfter = it })
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Lock, contentDescription = null)
+                        Text("  Lock bootloader after flashing", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = lockAfter, onCheckedChange = { lockAfter = it })
+                    }
                 }
+                item {
+                    FilledTonalButton(
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { scope.launch { busy = true; fastboot.connect(); busy = false } }
+                    ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
+                }
+                item {
+                    FilledTonalButton(
+                        enabled = !busy && selected.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                mitool.flashFastbootRom(images.filter { it.partitionName in selected }, lockAfter, fastboot)
+                                busy = false
+                            }
+                        }
+                    ) { Text(if (busy) "Flashing..." else "Flash selected images") }
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.CloudDownload, "Firmware Content Extractor")
+                Text(
+                    "Downloads a ROM ZIP and pulls out one named file (e.g. boot.img). Unlike the " +
+                        "original's range-request extractor, this downloads the full ZIP first — simpler, " +
+                        "but slower for multi-gigabyte ROMs.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = romUrl,
+                    onValueChange = { romUrl = it },
+                    label = { Text("ROM ZIP URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = entryName,
+                    onValueChange = { entryName = it },
+                    label = { Text("File to extract") },
+                    placeholder = { Text("boot.img") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
                 FilledTonalButton(
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { busy = true; fastboot.connect(); busy = false } }
-                ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
-                FilledTonalButton(
-                    enabled = !busy && selected.isNotEmpty(),
+                    enabled = !busy && romUrl.isNotBlank() && entryName.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         scope.launch {
                             busy = true
-                            mitool.flashFastbootRom(images.filter { it.partitionName in selected }, lockAfter, fastboot)
+                            mitool.downloadAndExtractFromZip(romUrl.trim(), entryName.trim())
                             busy = false
                         }
                     }
-                ) { Text(if (busy) "Flashing..." else "Flash selected images") }
+                ) { Text(if (busy) "Working..." else "Download & extract") }
             }
 
-            SectionHeading(Icons.Filled.CloudDownload, "Firmware Content Extractor")
-            Text(
-                "Downloads a ROM ZIP and pulls out one named file (e.g. boot.img). Unlike the " +
-                    "original's range-request extractor, this downloads the full ZIP first — simpler, " +
-                    "but slower for multi-gigabyte ROMs.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            OutlinedTextField(
-                value = romUrl,
-                onValueChange = { romUrl = it },
-                label = { Text("ROM ZIP URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = entryName,
-                onValueChange = { entryName = it },
-                label = { Text("File to extract") },
-                placeholder = { Text("boot.img") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            FilledTonalButton(
-                enabled = !busy && romUrl.isNotBlank() && entryName.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        mitool.downloadAndExtractFromZip(romUrl.trim(), entryName.trim())
-                        busy = false
-                    }
-                }
-            ) { Text(if (busy) "Working..." else "Download & extract") }
-
-            SectionHeading(Icons.Filled.Info, "Recent activity")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
-            }
+            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
+            items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

@@ -206,6 +206,29 @@ class FastbootOperations(
         }
     }
 
+    /** getvar:token, falling back to `oem get_token` — matches Mi Unlock's own two-step probe. */
+    suspend fun getDeviceToken(): String = withContext(Dispatchers.IO) {
+        val c = client ?: return@withContext logAndReturnDisconnected()
+        val viaGetvar = c.command("getvar:token")
+        if (viaGetvar is FastbootUsbClient.FastbootResponse.Okay && viaGetvar.message.isNotBlank()) {
+            log.info(TAG, "getvar:token = ${viaGetvar.message}")
+            return@withContext viaGetvar.message
+        }
+        val viaOem = c.command("oem get_token")
+        if (viaOem is FastbootUsbClient.FastbootResponse.Okay && viaOem.message.isNotBlank()) {
+            log.info(TAG, "oem get_token = ${viaOem.message}")
+            return@withContext viaOem.message
+        }
+        log.error(TAG, "Could not retrieve device token via getvar:token or oem get_token")
+        ""
+    }
+
+    /** Stages a file into the device's download buffer without an immediate flash/boot follow-up. */
+    suspend fun stageFile(file: File): Boolean = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        handleResult(c.download(file), "download ${file.name} (${file.length()} bytes)")
+    }
+
     suspend fun reboot(target: FastbootRebootTarget): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
         val cmd = when (target) {

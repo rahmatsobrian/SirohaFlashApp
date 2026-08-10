@@ -152,6 +152,17 @@ class FastbootUsbClient(
         return command(finalCommand, onInfo)
     }
 
+    /**
+     * Stages a file into the device's download buffer without any
+     * immediate follow-up command — used by Mi Unlock, where the staged
+     * `encryptData` blob is consumed implicitly by a separate `oem unlock`
+     * call afterward rather than a `flash:`/`boot` command right away.
+     */
+    fun download(
+        file: File,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> }
+    ): FastbootResponse = sendDownload(file.length(), file, onProgress)
+
     /** Handles the DATA<size> handshake + raw payload write for download:. */
     private fun sendDownload(
         size: Long,

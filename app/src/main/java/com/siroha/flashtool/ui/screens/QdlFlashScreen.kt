@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -76,98 +77,109 @@ fun QdlFlashScreen(
     Scaffold(
         topBar = { SirohaTopBar("QDL Flash (EDL 9008)", icon = Icons.Filled.Bolt, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                "Put the target device into EDL (9008) mode, connect via USB OTG, then pick the " +
-                    "firehose loader and rawprogram/patch XML files for its ROM.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = storage == "emmc", onClick = { storage = "emmc" }, label = { Text("eMMC") })
-                FilterChip(selected = storage == "ufs", onClick = { storage = "ufs" }, label = { Text("UFS") })
+            item {
+                Text(
+                    "Put the target device into EDL (9008) mode, connect via USB OTG, then pick the " +
+                        "firehose loader and rawprogram/patch XML files for its ROM.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
 
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { loaderPicker.launch(arrayOf("*/*")) }) {
-                Text(loaderUri?.lastPathSegment ?: "Pick firehose loader (.mbn/.elf)")
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = storage == "emmc", onClick = { storage = "emmc" }, label = { Text("eMMC") })
+                    FilterChip(selected = storage == "ufs", onClick = { storage = "ufs" }, label = { Text("UFS") })
+                }
             }
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { rawprogramPicker.launch(arrayOf("text/xml", "*/*")) }) {
-                Text(rawprogramUri?.lastPathSegment ?: "Pick rawprogram*.xml")
+
+            item {
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { loaderPicker.launch(arrayOf("*/*")) }) {
+                    Text(loaderUri?.lastPathSegment ?: "Pick firehose loader (.mbn/.elf)")
+                }
             }
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { patchPicker.launch(arrayOf("text/xml", "*/*")) }) {
-                Text(patchUri?.lastPathSegment ?: "Pick patch*.xml")
+            item {
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { rawprogramPicker.launch(arrayOf("text/xml", "*/*")) }) {
+                    Text(rawprogramUri?.lastPathSegment ?: "Pick rawprogram*.xml")
+                }
+            }
+            item {
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { patchPicker.launch(arrayOf("text/xml", "*/*")) }) {
+                    Text(patchUri?.lastPathSegment ?: "Pick patch*.xml")
+                }
             }
 
             if (partitions.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        "Partitions (${selected.size}/${partitions.size} selected)",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    Row {
-                        TextButton(onClick = { selected = partitions.map { it.label }.toSet() }) { Text("All") }
-                        TextButton(onClick = { selected = emptySet() }) { Text("None") }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Partitions (${selected.size}/${partitions.size} selected)",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Row {
+                            TextButton(onClick = { selected = partitions.map { it.label }.toSet() }) { Text("All") }
+                            TextButton(onClick = { selected = emptySet() }) { Text("None") }
+                        }
                     }
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
-                    items(partitions) { partition ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = partition.label in selected,
-                                onCheckedChange = { checked ->
-                                    selected = if (checked) selected + partition.label else selected - partition.label
-                                }
-                            )
-                            Column {
-                                Text(partition.label, style = MaterialTheme.typography.bodyLarge)
-                                Text(partition.filename, style = MaterialTheme.typography.bodyMedium)
+                // Flattened directly into the outer LazyColumn — a nested
+                // LazyColumn here would be a scrollable-inside-a-scrollable
+                // of the same orientation, which Compose can't size correctly.
+                items(partitions) { partition ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = partition.label in selected,
+                            onCheckedChange = { checked ->
+                                selected = if (checked) selected + partition.label else selected - partition.label
                             }
+                        )
+                        Column {
+                            Text(partition.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(partition.filename, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
             }
 
-            Button(
-                enabled = !running && loaderUri != null && rawprogramLocalPath != null && patchUri != null &&
-                    (partitions.isEmpty() || selected.isNotEmpty()),
-                onClick = {
-                    scope.launch {
-                        running = true
-                        output = listOf()
-                        val executor = executorProvider.detect()
-                        val ops = FlashOperations(context, executor, logRepository)
+            item {
+                Button(
+                    enabled = !running && loaderUri != null && rawprogramLocalPath != null && patchUri != null &&
+                        (partitions.isEmpty() || selected.isNotEmpty()),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            running = true
+                            output = listOf()
+                            val executor = executorProvider.detect()
+                            val ops = FlashOperations(context, executor, logRepository)
 
-                        val loaderPath = SafFiles.copyToCache(context, loaderUri!!, "loader")
-                        val patchPath = SafFiles.copyToCache(context, patchUri!!, "patch.xml")
+                            val loaderPath = SafFiles.copyToCache(context, loaderUri!!, "loader")
+                            val patchPath = SafFiles.copyToCache(context, patchUri!!, "patch.xml")
 
-                        ops.runQdl(
-                            loaderPath = loaderPath,
-                            rawprogramPaths = listOf(rawprogramLocalPath!!),
-                            patchPaths = listOf(patchPath),
-                            selectedLabels = if (partitions.isEmpty()) null else selected,
-                            storage = storage
-                        ).collect { line -> output = output + line }
-                        running = false
+                            ops.runQdl(
+                                loaderPath = loaderPath,
+                                rawprogramPaths = listOf(rawprogramLocalPath!!),
+                                patchPaths = listOf(patchPath),
+                                selectedLabels = if (partitions.isEmpty()) null else selected,
+                                storage = storage
+                            ).collect { line -> output = output + line }
+                            running = false
+                        }
                     }
-                }
-            ) { Text(if (running) "Flashing..." else "Start QDL Flash") }
-
-            SectionHeading(Icons.Filled.Bolt, "Output")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
+                ) { Text(if (running) "Flashing..." else "Start QDL Flash") }
             }
+
+            item { SectionHeading(Icons.Filled.Bolt, "Output") }
+            items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

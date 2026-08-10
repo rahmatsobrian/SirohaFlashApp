@@ -106,13 +106,11 @@ fun AboutScreen(onBack: () -> Unit) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         SectionHeading(Icons.Filled.Block, "Not implementable here")
                         Text(
-                            "• MiTool's \"Unlock Bootloader\" and \"Mi Assistant\" — both depend on " +
-                                "Xiaomi's private, account-based servers (and, for Mi Assistant, an " +
-                                "external binary the original project never open-sourced either). " +
-                                "There's no public spec to build against, unlike ADB/fastboot. The two " +
-                                "MiTool features that don't need Xiaomi's private API (fastboot ROM " +
-                                "flashing, firmware content extraction) are implemented — see the MiTool " +
-                                "screen.\n" +
+                            "• Mi Assistant — depends on an external \"miasst_termux\" binary that was " +
+                                "never open-sourced anywhere, even in the original project (it's " +
+                                "literally listed as \"planned, no ETA\" in offici5l/MiTools' own README " +
+                                "too). There's no protocol spec to build against at all, unlike ADB/" +
+                                "fastboot or Mi Unlock's account API.\n" +
                                 "• wipe-super — the real fastboot host tool's binary super_empty.img " +
                                 "metadata parser, not a single protocol command. The GSI screen's \"Wipe " +
                                 "Super\" button covers the common case (optional partitions) instead.",

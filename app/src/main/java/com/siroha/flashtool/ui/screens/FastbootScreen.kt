@@ -94,142 +94,158 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                "Native fastboot-over-USB — no external fastboot binary needed. Connect the target " +
-                    "in fastboot mode via OTG first.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { scope.launch { busy = true; connected = ops.connect(); busy = false } }
-            ) {
-                Icon(Icons.Filled.Usb, contentDescription = null)
-                Text(if (connected) "  Reconnect device" else "  Connect fastboot device")
+            item {
+                Text(
+                    "Native fastboot-over-USB — no external fastboot binary needed. Connect the target " +
+                        "in fastboot mode via OTG first.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
 
-            SectionHeading(Icons.Filled.Bolt, "Flash partition")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FlashPartitionRow("Recovery", "recovery", { ops }, { busy = it })
-                FlashPartitionRow("Boot", "boot", { ops }, { busy = it })
-                FlashPartitionRow("init_boot", "init_boot", { ops }, { busy = it })
-                FlashPartitionRow("vendor_boot", "vendor_boot", { ops }, { busy = it })
-                FlashPartitionRow("vbmeta", "vbmeta", { ops }, { busy = it })
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { scope.launch { busy = true; connected = ops.connect(); busy = false } }
+                ) {
+                    Icon(Icons.Filled.Usb, contentDescription = null)
+                    Text(if (connected) "  Reconnect device" else "  Connect fastboot device")
+                }
             }
 
-            SectionHeading(Icons.Filled.RestartAlt, "Reboot")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.BOOTLOADER); connected = false } }) { Text("Bootloader") }
-                FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.RECOVERY); connected = false } }) { Text("Recovery") }
-                FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.SYSTEM); connected = false } }) { Text("System") }
-                FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.FASTBOOTD); connected = false } }) { Text("FastbootD") }
+            item {
+                SectionHeading(Icons.Filled.Bolt, "Flash partition")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlashPartitionRow("Recovery", "recovery", { ops }, { busy = it })
+                    FlashPartitionRow("Boot", "boot", { ops }, { busy = it })
+                    FlashPartitionRow("init_boot", "init_boot", { ops }, { busy = it })
+                    FlashPartitionRow("vendor_boot", "vendor_boot", { ops }, { busy = it })
+                    FlashPartitionRow("vbmeta", "vbmeta", { ops }, { busy = it })
+                }
             }
 
-            SectionHeading(Icons.Filled.Info, "Status")
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { scope.launch { ops.oem("device-info") } }) {
-                Text("Check Status UBL (oem device-info)")
+            item {
+                SectionHeading(Icons.Filled.RestartAlt, "Reboot")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.BOOTLOADER); connected = false } }) { Text("Bootloader") }
+                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.RECOVERY); connected = false } }) { Text("Recovery") }
+                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.SYSTEM); connected = false } }) { Text("System") }
+                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.FASTBOOTD); connected = false } }) { Text("FastbootD") }
+                }
             }
 
-            SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Type a raw fastboot command exactly as the wire protocol expects " +
-                            "(colon-separated, e.g. getvar:product) — not the CLI-style spaced form.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    // No floating `label` here on purpose — the label cutout in the
-                    // border can look like a rendering glitch on a small phone
-                    // screen. A plain caption above + an in-field leading icon reads
-                    // more clearly as "this is a command box."
-                    OutlinedTextField(
-                        value = manualCommand,
-                        onValueChange = { manualCommand = it },
-                        placeholder = { Text("getvar:product") },
-                        leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge,
-                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            cursorColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    // Live echo: proves keystrokes are actually reaching the state,
-                    // rather than only trusting what the text field itself renders.
-                    if (manualCommand.isNotEmpty()) {
+            item {
+                SectionHeading(Icons.Filled.Info, "Status")
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { scope.launch { ops.oem("device-info") } }) {
+                    Text("Check Status UBL (oem device-info)")
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "Will send: $manualCommand",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "Type a raw fastboot command exactly as the wire protocol expects " +
+                                "(colon-separated, e.g. getvar:product) — not the CLI-style spaced form.",
+                            style = MaterialTheme.typography.bodyMedium
                         )
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        FilledTonalButton(
-                            enabled = manualCommand.isNotBlank() && !busy,
-                            onClick = {
-                                scope.launch {
-                                    busy = true
-                                    manualResult = ops.rawCommandWithResponse(manualCommand.trim())
-                                    busy = false
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Filled.Send, contentDescription = null)
-                            Text("  Send")
+                        // No floating `label` here on purpose — the label cutout in the
+                        // border can look like a rendering glitch on a small phone
+                        // screen. A plain caption above + an in-field leading icon reads
+                        // more clearly as "this is a command box."
+                        OutlinedTextField(
+                            value = manualCommand,
+                            onValueChange = { manualCommand = it },
+                            placeholder = { Text("getvar:product") },
+                            leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        // Live echo: proves keystrokes are actually reaching the state,
+                        // rather than only trusting what the text field itself renders.
+                        if (manualCommand.isNotEmpty()) {
+                            Text(
+                                "Will send: $manualCommand",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    }
-                    // Immediate inline feedback — without this, a successful or failed
-                    // command only showed up in "Recent activity" below, which reads
-                    // as "nothing happened" unless you scroll down to check.
-                    if (manualResult.isNotBlank()) {
-                        Text(
-                            manualResult,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (manualResult.startsWith("OK")) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.error
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            FilledTonalButton(
+                                enabled = manualCommand.isNotBlank() && !busy,
+                                onClick = {
+                                    scope.launch {
+                                        busy = true
+                                        manualResult = ops.rawCommandWithResponse(manualCommand.trim())
+                                        busy = false
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Filled.Send, contentDescription = null)
+                                Text("  Send")
                             }
-                        )
+                        }
+                        // Immediate inline feedback — without this, a successful or failed
+                        // command only showed up in "Recent activity" below, which reads
+                        // as "nothing happened" unless you scroll down to check.
+                        if (manualResult.isNotBlank()) {
+                            Text(
+                                manualResult,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (manualResult.startsWith("OK")) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
                     }
                 }
             }
 
-            SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
-            Text(
-                "Uses this app's from-scratch ADB-over-USB client, with the target already booted " +
-                    "into recovery/sideload mode. First connection needs \"Allow USB debugging\" on " +
-                    "the target's screen, then tap Connect again.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
-            ) {
-                Icon(Icons.Filled.Usb, contentDescription = null)
-                Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+            item {
+                SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
+                Text(
+                    "Uses this app's from-scratch ADB-over-USB client, with the target already booted " +
+                        "into recovery/sideload mode. First connection needs \"Allow USB debugging\" on " +
+                        "the target's screen, then tap Connect again.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
-            ) {
-                Icon(Icons.Filled.CloudUpload, contentDescription = null)
-                Text("  Sideload ZIP")
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
+                ) {
+                    Icon(Icons.Filled.Usb, contentDescription = null)
+                    Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+                }
+            }
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+                ) {
+                    Icon(Icons.Filled.CloudUpload, contentDescription = null)
+                    Text("  Sideload ZIP")
+                }
             }
 
-            SectionHeading(Icons.Filled.Info, "Recent activity")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
-            }
+            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
+            items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

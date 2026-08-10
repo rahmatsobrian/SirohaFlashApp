@@ -69,74 +69,84 @@ fun AbPartitionScreen(logRepository: LogRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = { SirohaTopBar("A/B Partition Tool", icon = Icons.Filled.SwapHoriz, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
-            ) { Text("Connect fastboot device") }
-
-            SectionHeading(Icons.Filled.RocketLaunch, "Flash by slot")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FlashButton("boot (active)", "boot", ops) { busy = it }
-                FlashButton("boot_a", "boot_a", ops) { busy = it }
-                FlashButton("boot_b", "boot_b", ops) { busy = it }
-                FlashButton("init_boot_a", "init_boot_a", ops) { busy = it }
-                FlashButton("init_boot_b", "init_boot_b", ops) { busy = it }
-                FlashButton("recovery (active)", "recovery", ops) { busy = it }
-                FlashButton("recovery_a", "recovery_a", ops) { busy = it }
-                FlashButton("recovery_b", "recovery_b", ops) { busy = it }
-                FlashButton("vendor_boot_a", "vendor_boot_a", ops) { busy = it }
-                FlashButton("vendor_boot_b", "vendor_boot_b", ops) { busy = it }
-                FlashButton("vbmeta_a", "vbmeta_a", ops) { busy = it }
-                FlashButton("vbmeta_b", "vbmeta_b", ops) { busy = it }
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
+                ) { Text("Connect fastboot device") }
             }
 
-            SectionHeading(Icons.Filled.SwapHoriz, "Slot control")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("current-slot"); busy = false } }) { Text("Check active slot") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("a"); busy = false } }) { Text("Set active: A") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("b"); busy = false } }) { Text("Set active: B") }
+            item {
+                SectionHeading(Icons.Filled.RocketLaunch, "Flash by slot")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlashButton("boot (active)", "boot", ops) { busy = it }
+                    FlashButton("boot_a", "boot_a", ops) { busy = it }
+                    FlashButton("boot_b", "boot_b", ops) { busy = it }
+                    FlashButton("init_boot_a", "init_boot_a", ops) { busy = it }
+                    FlashButton("init_boot_b", "init_boot_b", ops) { busy = it }
+                    FlashButton("recovery (active)", "recovery", ops) { busy = it }
+                    FlashButton("recovery_a", "recovery_a", ops) { busy = it }
+                    FlashButton("recovery_b", "recovery_b", ops) { busy = it }
+                    FlashButton("vendor_boot_a", "vendor_boot_a", ops) { busy = it }
+                    FlashButton("vendor_boot_b", "vendor_boot_b", ops) { busy = it }
+                    FlashButton("vbmeta_a", "vbmeta_a", ops) { busy = it }
+                    FlashButton("vbmeta_b", "vbmeta_b", ops) { busy = it }
+                }
             }
 
-            SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)")
-            val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-                if (uri == null) return@rememberLauncherForActivityResult
-                val path = SafFiles.copyToCache(context, uri, "twrp.img")
-                scope.launch { busy = true; ops.boot(File(path)); busy = false }
-            }
-            FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { twrpPicker.launch(arrayOf("*/*")) }) { Text("Boot TWRP image") }
-
-            SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
-            val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-                if (uri == null) return@rememberLauncherForActivityResult
-                val path = SafFiles.copyToCache(context, uri, "sideload.zip")
-                scope.launch { busy = true; adb.sideload(File(path)); busy = false }
-            }
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
-            ) {
-                Icon(Icons.Filled.Usb, contentDescription = null)
-                Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
-            }
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
-            ) {
-                Icon(Icons.Filled.CloudUpload, contentDescription = null)
-                Text("  Sideload ZIP")
+            item {
+                SectionHeading(Icons.Filled.SwapHoriz, "Slot control")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("current-slot"); busy = false } }) { Text("Check active slot") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("a"); busy = false } }) { Text("Set active: A") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.setActiveSlot("b"); busy = false } }) { Text("Set active: B") }
+                }
             }
 
-            SectionHeading(Icons.Filled.Usb, "Recent activity")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
+            item {
+                SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)")
+                val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val path = SafFiles.copyToCache(context, uri, "twrp.img")
+                    scope.launch { busy = true; ops.boot(File(path)); busy = false }
+                }
+                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { twrpPicker.launch(arrayOf("*/*")) }) { Text("Boot TWRP image") }
             }
+
+            item { SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload") }
+            item {
+                val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val path = SafFiles.copyToCache(context, uri, "sideload.zip")
+                    scope.launch { busy = true; adb.sideload(File(path)); busy = false }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
+                    ) {
+                        Icon(Icons.Filled.Usb, contentDescription = null)
+                        Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+                    }
+                    FilledTonalButton(
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+                    ) {
+                        Icon(Icons.Filled.CloudUpload, contentDescription = null)
+                        Text("  Sideload ZIP")
+                    }
+                }
+            }
+
+            item { SectionHeading(Icons.Filled.Usb, "Recent activity") }
+            items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

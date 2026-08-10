@@ -47,13 +47,21 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   do).
 - **FRP Remove Tool** — SPRD method via fastboot (`erase persist`); Samsung
   and SPRD/MTK methods via the ADB client.
-- **MiTool** — 2 of the original's 4 tools, reimplemented natively:
+- **Mi Unlock** — a close port of offici5l/MiTools' MiUnlock module
+  (Apache-2.0, upstream author of the credited "MiTool" project). WebView
+  login against Xiaomi's real account.xiaomi.com, then the account-
+  authenticated unlock API: region/host resolution, an AES-CBC + HMAC-SHA1
+  request-signing scheme, nonce/eligibility check, and staging the signed
+  `encryptData` over fastboot before `oem unlock`. Ported deliberately
+  close to the reference implementation rather than rewritten, since for a
+  crypto/auth flow like this, matching known-working code is far safer
+  than reconstructing it from memory.
+- **MiTool** — the other 2 of the original 4 tools, reimplemented natively:
   **Flash Fastboot ROM** (pick a folder, every `*.img` gets fastboot-flashed
   to a same-named partition — exactly how Xiaomi's own `flash_all.sh`
   works, so no per-device partition list needed) and **Firmware Content
-  Extractor** (download a ROM ZIP, pull out one named file). The other two
-  — **Unlock Bootloader** and **Mi Assistant** — are NOT here; see "Known
-  gaps" for why that's a hard boundary, not a "not yet."
+  Extractor** (download a ROM ZIP, pull out one named file). **Mi
+  Assistant** is the one MiTool feature NOT here; see "Known gaps."
 - **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
 - CI workflow — builds debug+release, tests, lint, zero repo secrets,
@@ -69,13 +77,18 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   *optional* partitions (product/system_ext/odm, both slots) that GSI
   guides always have you clear — correct for the common case, not a
   general-purpose super_empty.img-driven wipe.
-- **MiTool's Unlock Bootloader and Mi Assistant** — genuinely not
-  implementable, not just deferred. Unlock Bootloader needs Xiaomi's
-  private, account-authenticated unlock servers. Mi Assistant talks to an
-  external `miasst_termux` binary that was *never open-sourced even in the
-  original project* — there's no protocol spec to reimplement against at
-  all, unlike ADB/fastboot which are public. Reference scripts for all four
-  original tools are kept in `mitool_reference/` regardless.
+- **Mi Assistant** — genuinely not implementable, not just deferred. It
+  talks to an external `miasst_termux` binary that was *never open-sourced
+  anywhere, even in offici5l/MiTools itself* (that project's own README
+  lists it as "planned, no ETA" too) — there's no protocol spec to
+  reimplement against at all, unlike ADB/fastboot/Mi Unlock which are
+  public or open-sourced. Reference scripts for all four original MiTool
+  tools are kept in `mitool_reference/` regardless.
+- **Mi Unlock has not been tested against a real Xiaomi account or
+  device** — same caveat as the ADB/fastboot protocol work: written as a
+  close port of a known-working reference, but nothing in this app has run
+  against real hardware. If the WebView login succeeds but the server calls
+  fail, or `oem unlock` doesn't stick, send back the Logs screen output.
 - **`menu_install`** in flash.sh was Termux package management — replaced
   with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).
 - Nothing in this app has been compile-tested or hardware-tested in the
@@ -116,3 +129,14 @@ app/src/main/
     └── ui/{theme,navigation,screens,components}/
 mitool_reference/                 ← original Python scripts, not compiled in
 ```
+
+## Third-party attribution
+
+`core/MiUnlockApi.kt` and `core/MiUnlockOperations.kt` are a close port of
+the MiUnlock module from [offici5l/MiTools](https://github.com/offici5l/MiTools),
+licensed Apache License 2.0. Per that license: the original copyright and
+license notice are retained in those files' headers, and this note
+documents that the Kotlin has been adapted (restructured into this app's
+executor/logging architecture; the WebView login and USB steps are
+otherwise a deliberately close port). A full copy of the Apache 2.0 license
+text is available at https://www.apache.org/licenses/LICENSE-2.0.

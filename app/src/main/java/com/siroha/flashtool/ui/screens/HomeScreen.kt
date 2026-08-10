@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
@@ -69,6 +70,7 @@ private val sections = listOf(
     MenuSection(
         Icons.Filled.Extension, "Xiaomi (MiTool)",
         listOf(
+            MenuEntry("Mi Unlock", "Log in, then unlock the bootloader via Xiaomi's account API", Icons.Filled.LockOpen, Routes.MIUNLOCK),
             MenuEntry("MiTool", "Flash fastboot ROM by folder, extract a file from a ROM ZIP", Icons.Filled.Extension, Routes.MITOOL),
         )
     ),

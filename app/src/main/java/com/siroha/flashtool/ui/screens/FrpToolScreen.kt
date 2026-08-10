@@ -61,79 +61,93 @@ fun FrpToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = { SirohaTopBar("FRP Remove Tool", icon = Icons.Filled.Shield, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        SectionHeading(Icons.Filled.WarningAmber, "Only your own device", MaterialTheme.colorScheme.onErrorContainer)
+                        Text(
+                            "Removing Factory Reset Protection on a device that isn't yours may be illegal. " +
+                                "Only use this on a device you own or are explicitly authorized to service.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Usb, "SPRD FRP — via fastboot")
+                FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; fastboot.connect(); busy = false } }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device")
+                }
+            }
+            item {
+                FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; fastboot.erase("persist"); busy = false } }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Lock, contentDescription = null); Text("  Erase persist (SPRD FRP reset)")
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.PhoneAndroid, "Samsung / SPRD-MTK FRP — via ADB")
+                Text(
+                    "Uses this app's from-scratch ADB-over-USB client. First connection needs you to tap " +
+                        "\"Allow USB debugging\" on the target device's screen, then tap Connect again.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            item {
+                FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Usb, contentDescription = null); Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
+                }
+            }
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            adb.shell("am start -n com.google.android.gsf.login/")
+                            adb.shell("am start -n com.google.android.gsf.login.LoginActivity")
+                            adb.shell("content insert --uri content://settings/secure --bind name:s:user_setup_complete --bind value:s:1")
+                            busy = false
+                        }
+                    }
+                ) { Icon(Icons.Filled.Lock, contentDescription = null); Text("  Samsung FRP reset") }
+            }
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            adb.shell("content insert --uri content://settings/secure --bind name:s:user_setup_complete --bind value:s:1")
+                            busy = false
+                        }
+                    }
+                ) { Icon(Icons.Filled.Lock, contentDescription = null); Text("  SPRD/MTK FRP reset") }
+            }
+
+            item { SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload") }
+            item {
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
                 ) {
-                    SectionHeading(Icons.Filled.WarningAmber, "Only your own device", MaterialTheme.colorScheme.onErrorContainer)
-                    Text(
-                        "Removing Factory Reset Protection on a device that isn't yours may be illegal. " +
-                            "Only use this on a device you own or are explicitly authorized to service.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
+                    Icon(Icons.Filled.CloudUpload, contentDescription = null); Text("  Sideload ZIP")
                 }
             }
 
-            SectionHeading(Icons.Filled.Usb, "SPRD FRP — via fastboot")
-            FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; fastboot.connect(); busy = false } }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device")
-            }
-            FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; fastboot.erase("persist"); busy = false } }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Lock, contentDescription = null); Text("  Erase persist (SPRD FRP reset)")
-            }
-
-            SectionHeading(Icons.Filled.PhoneAndroid, "Samsung / SPRD-MTK FRP — via ADB")
-            Text(
-                "Uses this app's from-scratch ADB-over-USB client. First connection needs you to tap " +
-                    "\"Allow USB debugging\" on the target device's screen, then tap Connect again.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            FilledTonalButton(enabled = !busy, onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Usb, contentDescription = null); Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
-            }
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        adb.shell("am start -n com.google.android.gsf.login/")
-                        adb.shell("am start -n com.google.android.gsf.login.LoginActivity")
-                        adb.shell("content insert --uri content://settings/secure --bind name:s:user_setup_complete --bind value:s:1")
-                        busy = false
-                    }
-                }
-            ) { Icon(Icons.Filled.Lock, contentDescription = null); Text("  Samsung FRP reset") }
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        adb.shell("content insert --uri content://settings/secure --bind name:s:user_setup_complete --bind value:s:1")
-                        busy = false
-                    }
-                }
-            ) { Icon(Icons.Filled.Lock, contentDescription = null); Text("  SPRD/MTK FRP reset") }
-
-            SectionHeading(Icons.Filled.CloudUpload, "ADB Sideload")
-            FilledTonalButton(
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
-            ) {
-                Icon(Icons.Filled.CloudUpload, contentDescription = null); Text("  Sideload ZIP")
-            }
-
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
-            }
+            items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,45 +63,49 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     Scaffold(
         topBar = { SirohaTopBar("GSI ROM Flash Tool", icon = Icons.Filled.RocketLaunch, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                "Order (from flash.sh): connect → vbmeta → reboot to FastbootD → erase system → " +
-                    "delete logical partitions → flash GSI → reboot to recovery.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            FilledTonalButton(
-                enabled = !busy, modifier = Modifier.fillMaxWidth(),
-                onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
-            ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
-
-            SectionHeading(Icons.Filled.RocketLaunch, "Flash steps")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { vbmetaPicker.launch(arrayOf("*/*")) }) { Text("Flash VBMETA (disable-verity)") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) { Text("Reboot → FastbootD") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) { Text("Check is-userspace") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) { Text("Erase system") }
+            item {
+                Text(
+                    "Order (from flash.sh): connect → vbmeta → reboot to FastbootD → erase system → " +
+                        "delete logical partitions → flash GSI → reboot to recovery.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            item {
                 FilledTonalButton(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            val results = ops.wipeOptionalDynamicPartitions()
-                            val ok = results.count { it.second }
-                            logRepository.info("GSI", "Wipe optional dynamic partitions: $ok/${results.size} succeeded (failures on partitions this device doesn't have are expected)")
-                            busy = false
-                        }
-                    }
-                ) { Text("Wipe Super (product/system_ext/odm)") }
-                FilledTonalButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
-                FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) { Text("Reboot → Recovery") }
+                    enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
+                ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
             }
 
-            SectionHeading(Icons.Filled.Info, "Recent activity")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
+            item {
+                SectionHeading(Icons.Filled.RocketLaunch, "Flash steps")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { vbmetaPicker.launch(arrayOf("*/*")) }) { Text("Flash VBMETA (disable-verity)") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) { Text("Reboot → FastbootD") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) { Text("Check is-userspace") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) { Text("Erase system") }
+                    FilledTonalButton(
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                val results = ops.wipeOptionalDynamicPartitions()
+                                val ok = results.count { it.second }
+                                logRepository.info("GSI", "Wipe optional dynamic partitions: $ok/${results.size} succeeded (failures on partitions this device doesn't have are expected)")
+                                busy = false
+                            }
+                        }
+                    ) { Text("Wipe Super (product/system_ext/odm)") }
+                    FilledTonalButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
+                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) { Text("Reboot → Recovery") }
+                }
             }
+
+            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
+            items(entries.takeLast(20)) { e -> Text(e.format(), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

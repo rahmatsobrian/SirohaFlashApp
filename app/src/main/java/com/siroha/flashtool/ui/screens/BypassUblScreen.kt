@@ -47,44 +47,46 @@ fun BypassUblScreen(
     Scaffold(
         topBar = { SirohaTopBar("Bypass UBL — Redmi 4A", icon = Icons.Filled.Shield, onBack = onBack) }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SectionHeading(Icons.Filled.Warning, "Device-specific — Redmi 4A (rolex) only", MaterialTheme.colorScheme.onErrorContainer)
-                    Text(
-                        "This flow uses the bundled MIUI 10.2.3.0 firehose loader and partition map. " +
-                            "Running it on any other model or ROM version can brick the device. Only " +
-                            "proceed if this is the exact device you intend to service.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
-
-            Text("Put the Redmi 4A into EDL (9008) mode and connect via USB OTG before starting.")
-
-            Button(
-                enabled = !running,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    scope.launch {
-                        running = true
-                        output = listOf()
-                        val executor = executorProvider.detect()
-                        val ops = FlashOperations(context, executor, logRepository)
-                        ops.runBypassUblRedmi4A().collect { line -> output = output + line }
-                        running = false
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SectionHeading(Icons.Filled.Warning, "Device-specific — Redmi 4A (rolex) only", MaterialTheme.colorScheme.onErrorContainer)
+                        Text(
+                            "This flow uses the bundled MIUI 10.2.3.0 firehose loader and partition map. " +
+                                "Running it on any other model or ROM version can brick the device. Only " +
+                                "proceed if this is the exact device you intend to service.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     }
                 }
-            ) { Text(if (running) "Running..." else "Start Bypass UBL") }
-
-            SectionHeading(Icons.Filled.Article, "Output")
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
             }
+
+            item { Text("Put the Redmi 4A into EDL (9008) mode and connect via USB OTG before starting.") }
+
+            item {
+                Button(
+                    enabled = !running,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            running = true
+                            output = listOf()
+                            val executor = executorProvider.detect()
+                            val ops = FlashOperations(context, executor, logRepository)
+                            ops.runBypassUblRedmi4A().collect { line -> output = output + line }
+                            running = false
+                        }
+                    }
+                ) { Text(if (running) "Running..." else "Start Bypass UBL") }
+            }
+
+            item { SectionHeading(Icons.Filled.Article, "Output") }
+            items(output) { line -> Text(line, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }
