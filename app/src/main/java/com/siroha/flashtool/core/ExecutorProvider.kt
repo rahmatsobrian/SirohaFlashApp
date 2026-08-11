@@ -48,4 +48,19 @@ class ExecutorProvider(context: Context) {
     }
 
     fun current(): ShellExecutor? = active
+
+    /**
+     * Non-prompting status snapshot for live display (e.g. a "Working with
+     * root/Shizuku" indicator on Home) — unlike [detect]/[requestAccess],
+     * this never triggers an su or Shizuku permission dialog, so it's safe
+     * to poll on a timer.
+     */
+    data class PassiveStatus(val rootGranted: Boolean?, val shizukuReady: Boolean)
+
+    suspend fun passiveStatus(): PassiveStatus = withContext(Dispatchers.IO) {
+        PassiveStatus(
+            rootGranted = Shell.isAppGrantedRoot(),
+            shizukuReady = shizuku.isReady()
+        )
+    }
 }

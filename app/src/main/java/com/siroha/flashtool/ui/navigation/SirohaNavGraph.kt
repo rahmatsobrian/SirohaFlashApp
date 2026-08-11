@@ -66,7 +66,10 @@ fun SirohaNavGraph(
 ) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
-            HomeScreen(onNavigate = { route -> navController.navigateSafely(route) })
+            HomeScreen(
+                executorProvider = executorProvider,
+                onNavigate = { route -> navController.navigateSafely(route) }
+            )
         }
         composable(Routes.QDL_FLASH) {
             QdlFlashScreen(

@@ -81,6 +81,8 @@ fun QdlFlashScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { com.siroha.flashtool.ui.components.DeviceStatusCard(executorProvider) }
+
             item {
                 Text(
                     "Put the target device into EDL (9008) mode, connect via USB OTG, then pick the " +

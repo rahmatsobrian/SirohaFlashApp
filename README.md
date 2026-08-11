@@ -62,6 +62,12 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   works, so no per-device partition list needed) and **Firmware Content
   Extractor** (download a ROM ZIP, pull out one named file). **Mi
   Assistant** is the one MiTool feature NOT here; see "Known gaps."
+- **Live status card** on Home and the QDL Flash screen — auto-refreshing
+  (every 2s, no permission prompts triggered) indicator of which execution
+  backend is active ("Working with root" / "Working with Shizuku" / neither)
+  and what's on USB right now, including a specific "EDL (9008) mode
+  detected" state so you can tell the target actually entered EDL mode
+  without needing to start a flash first.
 - **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
 - CI workflow — builds debug+release, tests, lint, zero repo secrets,
@@ -87,8 +93,11 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 - **Mi Unlock has not been tested against a real Xiaomi account or
   device** — same caveat as the ADB/fastboot protocol work: written as a
   close port of a known-working reference, but nothing in this app has run
-  against real hardware. If the WebView login succeeds but the server calls
-  fail, or `oem unlock` doesn't stick, send back the Logs screen output.
+  against real hardware. One known issue was already found and fixed from
+  a screenshot alone (the login WebView rendered solid black — a known
+  Compose `AndroidView`-hosted `WebView` rendering quirk, fixed by forcing
+  a hardware layer). If the WebView loads but the server calls fail, or
+  `oem unlock` doesn't stick, send back the Logs screen output.
 - **`menu_install`** in flash.sh was Termux package management — replaced
   with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).
 - Nothing in this app has been compile-tested or hardware-tested in the

@@ -78,10 +78,22 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                             "credentials go to Xiaomi, not through this app.",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    // weight(1f) — NOT fillMaxSize() — since this is a sibling
+                    // after the Text above inside a plain Column. fillMaxSize()
+                    // here fights the Column for space instead of taking what's
+                    // actually left over.
                     AndroidView(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                         factory = { ctx ->
                             WebView(ctx).apply {
+                                // Compose's AndroidView + WebView is a known
+                                // combination that can render solid black until
+                                // forced onto its own hardware-accelerated layer —
+                                // this doesn't happen in a plain XML Activity
+                                // (which is how the reference app runs it), only
+                                // through the Compose interop layer.
+                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                setBackgroundColor(android.graphics.Color.WHITE)
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.userAgentString = "(Android) Mobile"
