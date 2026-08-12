@@ -103,7 +103,12 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   also explicitly allowed since Xiaomi's login page pulls some sub-
   resources over plain HTTP. If the WebView loads but the server calls fail,
   or
-  `oem unlock` doesn't stick, send back the Logs screen output.
+  `oem unlock` doesn't stick, send back the Logs screen output. The login
+  WebView also intercepts the system Back button to navigate within its
+  own history first (e.g. back out of a "forgot password" sub-page) before
+  falling through to leaving the Mi Unlock screen — so Back never
+  unexpectedly dumps you out of the whole flow while there's still WebView
+  history to go back through.
 - **`menu_install`** in flash.sh was Termux package management — replaced
   with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).
 - Nothing in this app has been compile-tested or hardware-tested in the

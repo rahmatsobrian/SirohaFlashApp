@@ -7,6 +7,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,6 +63,18 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
     val miUnlock = remember { MiUnlockOperations(context, logRepository, fastboot) }
     var step by remember { mutableStateOf<UnlockStep>(UnlockStep.Login) }
     var userId by remember { mutableStateOf("") }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var webViewCanGoBack by remember { mutableStateOf(false) }
+
+    // Only intercepts the system Back button while there's actually WebView
+    // navigation history to go back through (e.g. the user tapped into a
+    // "forgot password" or language-switch sub-page from the login form).
+    // Otherwise Back falls through to onBack normally, so the user can
+    // always leave the Mi Unlock screen when there's nothing left to
+    // navigate back through inside the page itself.
+    BackHandler(enabled = step is UnlockStep.Login && webViewCanGoBack) {
+        webViewRef?.goBack()
+    }
 
     Scaffold(
         topBar = { SirohaTopBar("Mi Unlock", icon = Icons.Filled.LockOpen, onBack = onBack) }
@@ -122,6 +135,7 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView, url: String) {
+                                        webViewCanGoBack = view.canGoBack()
                                         view.evaluateJavascript("document.documentElement.outerHTML") { html ->
                                             val cleaned = html
                                                 .replace("\\u003C", "<").replace("\\u003E", ">")
@@ -159,6 +173,13 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                                             MiUnlockResult.Failed("${error.description} (code ${error.errorCode})")
                                         )
                                     }
+                                    // Catches history changes onPageFinished can miss
+                                    // (e.g. single-page-app style navigation within the
+                                    // login flow) so the Back-button-goes-into-the-
+                                    // WebView-first behavior stays accurate.
+                                    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                                        webViewCanGoBack = view.canGoBack()
+                                    }
                                 }
                             }
                         },
@@ -167,6 +188,7 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                         // bounds, so the page's first paint happens against its
                         // actual final size instead of a transient zero-height pass.
                         update = { webView ->
+                            webViewRef = webView
                             if (!hasStartedLoad) {
                                 hasStartedLoad = true
                                 webView.loadUrl(LOGIN_URL)
