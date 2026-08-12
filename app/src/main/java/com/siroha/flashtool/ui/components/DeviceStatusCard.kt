@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
@@ -104,14 +105,16 @@ fun DeviceStatusCard(executorProvider: ExecutorProvider) {
     }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Live status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                IconButton(onClick = { tick++ }) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh status") }
+                IconButton(onClick = { tick++ }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh status", modifier = Modifier.size(18.dp))
+                }
             }
             StatusRow(Icons.Filled.Security, executionLabel, executionColor)
             StatusRow(Icons.Filled.Bolt, usbLabel, usbColor)

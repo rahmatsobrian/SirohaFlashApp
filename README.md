@@ -93,10 +93,16 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 - **Mi Unlock has not been tested against a real Xiaomi account or
   device** — same caveat as the ADB/fastboot protocol work: written as a
   close port of a known-working reference, but nothing in this app has run
-  against real hardware. One known issue was already found and fixed from
-  a screenshot alone (the login WebView rendered solid black — a known
-  Compose `AndroidView`-hosted `WebView` rendering quirk, fixed by forcing
-  a hardware layer). If the WebView loads but the server calls fail, or
+  against real hardware. The login WebView going solid black turned out to
+  be two compounding Compose-`AndroidView`-hosted-`WebView` issues, fixed
+  across two rounds once real screenshots were available: a hardware-layer
+  rendering quirk, and `loadUrl()` firing before the view had stable
+  non-zero layout bounds (some pages collapse to invisible if their CSS
+  uses `height:100%` against a zero-height container on first paint) — now
+  deferred to fire only once real bounds exist, with mixed-content loading
+  also explicitly allowed since Xiaomi's login page pulls some sub-
+  resources over plain HTTP. If the WebView loads but the server calls fail,
+  or
   `oem unlock` doesn't stick, send back the Logs screen output.
 - **`menu_install`** in flash.sh was Termux package management — replaced
   with **Requirements & Status** (checks root/Shizuku/USB/qdl instead).

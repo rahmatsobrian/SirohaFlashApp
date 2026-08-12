@@ -82,10 +82,24 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                     // after the Text above inside a plain Column. fillMaxSize()
                     // here fights the Column for space instead of taking what's
                     // actually left over.
+                    var hasStartedLoad by remember { mutableStateOf(false) }
                     AndroidView(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         factory = { ctx ->
                             WebView(ctx).apply {
+                                // Explicit LayoutParams as a defensive belt-and-
+                                // suspenders alongside the Compose modifier above —
+                                // Chromium's compositor can read the view's initial
+                                // bounds before Compose's own layout pass finishes,
+                                // and some pages (ones whose CSS uses height:100%)
+                                // render nothing/black if that first measurement is
+                                // zero-height. Combined with deferring loadUrl to
+                                // `update` below (which only fires once real,
+                                // stable bounds exist), this avoids that race.
+                                layoutParams = android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                )
                                 // Compose's AndroidView + WebView is a known
                                 // combination that can render solid black until
                                 // forced onto its own hardware-accelerated layer —
@@ -99,6 +113,11 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                                 settings.userAgentString = "(Android) Mobile"
                                 settings.loadWithOverviewMode = true
                                 settings.useWideViewPort = true
+                                // Xiaomi's login page pulls some sub-resources over
+                                // plain HTTP; without this, WebView can silently
+                                // block them and leave the page half-rendered
+                                // (looks identical to a fully black/blank page).
+                                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                 CookieManager.getInstance().setAcceptCookie(true)
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 webViewClient = object : WebViewClient() {
@@ -129,13 +148,28 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
                                             }
                                         }
                                     }
+                                    // Matches offici5l/MiTools' own fix (v1.0.6, commit
+                                    // df35cfb, "Fix: Error loading page"): a failed
+                                    // sub-resource (ad script, tracking pixel, etc.) used
+                                    // to abort the whole login flow even though the actual
+                                    // page loaded fine — only a main-frame error is fatal.
                                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                                        if (request.isForMainFrame) {
-                                            step = UnlockStep.Done(MiUnlockResult.Failed("Page load error: ${error.description}"))
-                                        }
+                                        if (!request.isForMainFrame) return
+                                        step = UnlockStep.Done(
+                                            MiUnlockResult.Failed("${error.description} (code ${error.errorCode})")
+                                        )
                                     }
                                 }
-                                loadUrl(LOGIN_URL)
+                            }
+                        },
+                        // loadUrl deferred here instead of in `factory`: `update`
+                        // only runs once the AndroidView has real, stable measured
+                        // bounds, so the page's first paint happens against its
+                        // actual final size instead of a transient zero-height pass.
+                        update = { webView ->
+                            if (!hasStartedLoad) {
+                                hasStartedLoad = true
+                                webView.loadUrl(LOGIN_URL)
                             }
                         }
                     )
