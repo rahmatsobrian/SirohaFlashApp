@@ -21,8 +21,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,15 +59,35 @@ private sealed class UnlockStep {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
+fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val fastboot = remember { FastbootOperations(context, logRepository) }
+    val fastboot = fastbootOperations
     val miUnlock = remember { MiUnlockOperations(context, logRepository, fastboot) }
     var step by remember { mutableStateOf<UnlockStep>(UnlockStep.Login) }
     var userId by remember { mutableStateOf("") }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var webViewCanGoBack by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Surfaces each step transition's outcome as a Snackbar too, not just
+    // the on-screen status text, so it's noticeable even if attention has
+    // wandered during a multi-step, partly-network-bound flow like this.
+    LaunchedEffect(step) {
+        val message = when (val s = step) {
+            is UnlockStep.Done -> when (s.result) {
+                is MiUnlockResult.Unlocked -> "Mi Unlock — success"
+                is MiUnlockResult.Failed -> "Mi Unlock — failed: ${s.result.reason}"
+            }
+            is UnlockStep.ConnectDevice -> "Account session ready — connect the device"
+            is UnlockStep.Confirm -> "Eligibility check complete — review before unlocking"
+            else -> null
+        }
+        if (message != null) {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     // Only intercepts the system Back button while there's actually WebView
     // navigation history to go back through (e.g. the user tapped into a
@@ -77,7 +100,8 @@ fun MiUnlockScreen(logRepository: LogRepository, onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { SirohaTopBar("Mi Unlock", icon = Icons.Filled.LockOpen, onBack = onBack) }
+        topBar = { SirohaTopBar("Mi Unlock", icon = Icons.Filled.LockOpen, onBack = onBack) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),

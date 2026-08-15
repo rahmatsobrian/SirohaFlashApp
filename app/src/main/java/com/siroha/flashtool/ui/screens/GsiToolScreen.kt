@@ -20,6 +20,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,31 +39,33 @@ import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
-import kotlinx.coroutines.launch
+import com.siroha.flashtool.ui.components.launchWithFeedback
 import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
+fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val ops = remember { FastbootOperations(context, logRepository) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val ops = fastbootOperations
     var busy by remember { mutableStateOf(false) }
     val entries by logRepository.entries.collectAsState()
 
     val gsiPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val path = SafFiles.copyToCache(context, uri, "gsi_system.img")
-        scope.launch { busy = true; ops.flashPartition("system", File(path)); busy = false }
+        scope.launchWithFeedback(snackbarHostState, "Flash GSI image", { busy = it }) { ops.flashPartition("system", File(path)) }
     }
     val vbmetaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val path = SafFiles.copyToCache(context, uri, "vbmeta.img")
-        scope.launch { busy = true; ops.flashVbmeta(File(path), disableVerity = true); busy = false }
+        scope.launchWithFeedback(snackbarHostState, "Flash VBMETA", { busy = it }) { ops.flashVbmeta(File(path), disableVerity = true) }
     }
 
     Scaffold(
-        topBar = { SirohaTopBar("GSI ROM Flash Tool", icon = Icons.Filled.RocketLaunch, onBack = onBack) }
+        topBar = { SirohaTopBar("GSI ROM Flash Tool", icon = Icons.Filled.RocketLaunch, onBack = onBack) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -77,7 +81,7 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
             item {
                 FilledTonalButton(
                     enabled = !busy, modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { busy = true; ops.connect(); busy = false } }
+                    onClick = { scope.launchWithFeedback(snackbarHostState, "Connect fastboot", { busy = it }) { ops.connect() } }
                 ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
             }
 
@@ -85,22 +89,29 @@ fun GsiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 SectionHeading(Icons.Filled.RocketLaunch, "Flash steps")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = { vbmetaPicker.launch(arrayOf("*/*")) }) { Text("Flash VBMETA (disable-verity)") }
-                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.FASTBOOTD); busy = false } }) { Text("Reboot → FastbootD") }
-                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.getVar("is-userspace"); busy = false } }) { Text("Check is-userspace") }
-                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.erase("system"); busy = false } }) { Text("Erase system") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to FastbootD", { busy = it }) { ops.reboot(FastbootRebootTarget.FASTBOOTD) }
+                    }) { Text("Reboot → FastbootD") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Check is-userspace", { busy = it }) { ops.getVar("is-userspace").isNotBlank() }
+                    }) { Text("Check is-userspace") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Erase system", { busy = it }) { ops.erase("system") }
+                    }) { Text("Erase system") }
                     FilledTonalButton(
                         onClick = {
-                            scope.launch {
-                                busy = true
+                            scope.launchWithFeedback(snackbarHostState, "Wipe Super", { busy = it }) {
                                 val results = ops.wipeOptionalDynamicPartitions()
                                 val ok = results.count { it.second }
                                 logRepository.info("GSI", "Wipe optional dynamic partitions: $ok/${results.size} succeeded (failures on partitions this device doesn't have are expected)")
-                                busy = false
+                                ok > 0
                             }
                         }
                     ) { Text("Wipe Super (product/system_ext/odm)") }
                     FilledTonalButton(onClick = { gsiPicker.launch(arrayOf("*/*")) }) { Text("Flash GSI system image") }
-                    FilledTonalButton(onClick = { scope.launch { busy = true; ops.reboot(FastbootRebootTarget.RECOVERY); busy = false } }) { Text("Reboot → Recovery") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to Recovery", { busy = it }) { ops.reboot(FastbootRebootTarget.RECOVERY) }
+                    }) { Text("Reboot → Recovery") }
                 }
             }
 

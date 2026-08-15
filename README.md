@@ -7,6 +7,33 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
+- **Fastboot/ADB connections now persist across screens** — `FastbootOperations`
+  and `AdbOperations` are app-wide singletons (created once in
+  `SirohaApplication`) instead of one private instance per screen. Connect
+  once anywhere and every other fastboot/ADB screen sees it as already
+  connected; `connect()` is also idempotent now, so calling it again while
+  already connected is a safe no-op instead of re-claiming (and breaking)
+  the USB interface.
+- **Fastboot command output actually shows the real response now** —
+  `oem device-info` and friends previously discarded every `INFO` packet
+  the bootloader sends (the individual `(bootloader) Verity mode: true`-
+  style lines) and only displayed the terse final status, which is why it
+  looked like a meaningless short token. Output is now formatted like the
+  real `fastboot` CLI: every INFO line prefixed `(bootloader) `, followed
+  by `OKAY [ Xs ]` / `FAILED (...)` and a `Finished. Total time: Xs` line.
+- **`devices` typed into the manual command box now works** — it's a
+  host-side (PC-side) fastboot CLI subcommand, never sent over the wire to
+  the phone at all, so it's intercepted locally and lists the currently
+  attached fastboot device(s) by serial, matching real `fastboot devices`
+  output, instead of being forwarded to the bootloader and failing with
+  "unknown command".
+- **Manual ADB shell command box** — same idea as the fastboot one, now
+  also on the Fastboot/A-B/FRP screens: type what you'd type after
+  `adb shell` on a PC (no `adb shell` prefix needed) and it runs directly.
+- **Snackbar feedback on (almost) every action**, everywhere — connect,
+  flash, erase, reboot, sideload, Mi Unlock steps, and more all show an
+  immediate "succeeded"/"failed" Snackbar, so checking whether something
+  worked doesn't require scrolling down to the log list first.
 - Material3 + dynamic color theme, with a Settings-page picker for
   System / Light / Dark / **AMOLED** (true-black surfaces) and a toggle for
   Material You itself.

@@ -8,10 +8,8 @@ import kotlinx.coroutines.withContext
 /**
  * High-level ADB-over-USB actions built on [AdbUsbClient] — backs the
  * Samsung/SPRD FRP methods from flash.sh's menu_frp (both are plain
- * `adb shell` commands against the target) and general shell access.
- *
- * NOT implemented: ADB sideload (a separate chunked/flow-controlled
- * protocol, not a plain shell command — see README).
+ * `adb shell` commands against the target), general shell access via the
+ * manual command boxes, and ZIP sideloading.
  */
 class AdbOperations(
     private val context: Context,
@@ -30,6 +28,8 @@ class AdbOperations(
      * logs that and returns false; call it again after the user accepts.
      */
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        if (client != null) return@withContext true // already connected — don't re-claim the interface
+
         val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
         val device = devices.firstOrNull()
         if (device == null) {
@@ -69,6 +69,9 @@ class AdbOperations(
         client?.close()
         client = null
     }
+
+    /** True once [connect] has succeeded and hasn't been [disconnect]ed. */
+    fun isConnected(): Boolean = client != null
 
     suspend fun shell(command: String): String = withContext(Dispatchers.IO) {
         val c = client

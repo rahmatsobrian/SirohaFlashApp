@@ -27,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.ExecutorProvider
+import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.UsbDeviceHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -52,7 +54,11 @@ private sealed class UsbStatus {
  * root/Shizuku permission dialog on its own.
  */
 @Composable
-fun DeviceStatusCard(executorProvider: ExecutorProvider) {
+fun DeviceStatusCard(
+    executorProvider: ExecutorProvider,
+    fastbootOperations: FastbootOperations? = null,
+    adbOperations: AdbOperations? = null
+) {
     val context = LocalContext.current
     var rootGranted by remember { mutableStateOf<Boolean?>(null) }
     var shizukuReady by remember { mutableStateOf(false) }
@@ -99,8 +105,12 @@ fun DeviceStatusCard(executorProvider: ExecutorProvider) {
     val (usbLabel, usbColor) = when (val s = usbStatus) {
         is UsbStatus.None -> "No USB device connected" to MaterialTheme.colorScheme.onSurfaceVariant
         is UsbStatus.Edl -> "EDL (9008) mode detected — %04x:%04x".format(s.vendorId, s.productId) to MaterialTheme.colorScheme.primary
-        is UsbStatus.Fastboot -> "Fastboot-mode device detected" to MaterialTheme.colorScheme.primary
-        is UsbStatus.Adb -> "ADB-mode device detected" to MaterialTheme.colorScheme.primary
+        is UsbStatus.Fastboot ->
+            (if (fastbootOperations?.isConnected() == true) "Fastboot connected — ready in every menu" else "Fastboot-mode device detected — not connected yet") to
+                MaterialTheme.colorScheme.primary
+        is UsbStatus.Adb ->
+            (if (adbOperations?.isConnected() == true) "ADB connected — ready in every menu" else "ADB-mode device detected — not connected yet") to
+                MaterialTheme.colorScheme.primary
         is UsbStatus.Unrecognized -> "USB device connected (not EDL/fastboot/ADB)" to MaterialTheme.colorScheme.onSurfaceVariant
     }
 

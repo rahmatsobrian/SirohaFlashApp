@@ -26,6 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,14 +46,15 @@ import com.siroha.flashtool.core.MiToolOperations
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
-import kotlinx.coroutines.launch
+import com.siroha.flashtool.ui.components.launchWithFeedback
 
 @Composable
-fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
+fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val mitool = remember { MiToolOperations(context, logRepository) }
-    val fastboot = remember { FastbootOperations(context, logRepository) }
+    val fastboot = fastbootOperations
     var busy by remember { mutableStateOf(false) }
     var images by remember { mutableStateOf(listOf<MiToolOperations.RomImage>()) }
     var selected by remember { mutableStateOf(setOf<String>()) }
@@ -69,7 +72,8 @@ fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { SirohaTopBar("MiTool", icon = Icons.Filled.Extension, onBack = onBack) }
+        topBar = { SirohaTopBar("MiTool", icon = Icons.Filled.Extension, onBack = onBack) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -138,7 +142,7 @@ fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                     FilledTonalButton(
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { scope.launch { busy = true; fastboot.connect(); busy = false } }
+                        onClick = { scope.launchWithFeedback(snackbarHostState, "Connect fastboot", { busy = it }) { fastboot.connect() } }
                     ) { Icon(Icons.Filled.Usb, contentDescription = null); Text("  Connect fastboot device") }
                 }
                 item {
@@ -146,10 +150,8 @@ fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                         enabled = !busy && selected.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
-                            scope.launch {
-                                busy = true
+                            scope.launchWithFeedback(snackbarHostState, "Flash selected images", { busy = it }) {
                                 mitool.flashFastbootRom(images.filter { it.partitionName in selected }, lockAfter, fastboot)
-                                busy = false
                             }
                         }
                     ) { Text(if (busy) "Flashing..." else "Flash selected images") }
@@ -189,10 +191,8 @@ fun MiToolScreen(logRepository: LogRepository, onBack: () -> Unit) {
                     enabled = !busy && romUrl.isNotBlank() && entryName.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        scope.launch {
-                            busy = true
-                            mitool.downloadAndExtractFromZip(romUrl.trim(), entryName.trim())
-                            busy = false
+                        scope.launchWithFeedback(snackbarHostState, "Download & extract", { busy = it }) {
+                            mitool.downloadAndExtractFromZip(romUrl.trim(), entryName.trim()) != null
                         }
                     }
                 ) { Text(if (busy) "Working..." else "Download & extract") }

@@ -6,7 +6,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.ExecutorProvider
+import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.core.ThemePreferences
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.screens.AboutScreen
@@ -62,12 +64,16 @@ fun SirohaNavGraph(
     executorProvider: ExecutorProvider,
     logRepository: LogRepository,
     themePreferences: ThemePreferences,
+    fastbootOperations: FastbootOperations,
+    adbOperations: AdbOperations,
     navController: NavHostController = rememberNavController()
 ) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
             HomeScreen(
                 executorProvider = executorProvider,
+                fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
                 onNavigate = { route -> navController.navigateSafely(route) }
             )
         }
@@ -79,16 +85,35 @@ fun SirohaNavGraph(
             )
         }
         composable(Routes.FASTBOOT) {
-            FastbootScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            FastbootScreen(
+                fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.GSI_TOOL) {
-            GsiToolScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            GsiToolScreen(
+                fastbootOperations = fastbootOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.AB_PARTITION) {
-            AbPartitionScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            AbPartitionScreen(
+                fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.FRP_TOOL) {
-            FrpToolScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            FrpToolScreen(
+                fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.USB_FIX) {
             UsbFixScreen(onBack = { navController.popBackStack() })
@@ -107,10 +132,18 @@ fun SirohaNavGraph(
             )
         }
         composable(Routes.MITOOL) {
-            MiToolScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            MiToolScreen(
+                fastbootOperations = fastbootOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.MIUNLOCK) {
-            MiUnlockScreen(logRepository = logRepository, onBack = { navController.popBackStack() })
+            MiUnlockScreen(
+                fastbootOperations = fastbootOperations,
+                logRepository = logRepository,
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.LOGS) {
             LogsScreen(logRepository = logRepository, onBack = { navController.popBackStack() })

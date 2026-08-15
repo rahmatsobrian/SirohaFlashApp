@@ -29,7 +29,9 @@ class MainActivity : ComponentActivity() {
                     SirohaNavGraph(
                         executorProvider = app.executorProvider,
                         logRepository = app.logRepository,
-                        themePreferences = app.themePreferences
+                        themePreferences = app.themePreferences,
+                        fastbootOperations = app.fastbootOperations,
+                        adbOperations = app.adbOperations
                     )
                 }
             }

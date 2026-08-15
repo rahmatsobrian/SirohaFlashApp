@@ -29,6 +29,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -49,23 +51,27 @@ import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
+import com.siroha.flashtool.ui.components.launchWithFeedback
+import com.siroha.flashtool.ui.components.launchWithTextFeedback
 import kotlinx.coroutines.launch
 import java.io.File
 
 /** One "pick a file, flash it to this partition" row — the fastboot equivalent of flash_partition() in flash.sh. */
 @Composable
-private fun FlashPartitionRow(label: String, partition: String, ops: () -> FastbootOperations?, busy: (Boolean) -> Unit) {
+private fun FlashPartitionRow(
+    label: String,
+    partition: String,
+    ops: () -> FastbootOperations?,
+    busy: (Boolean) -> Unit,
+    snackbarHostState: SnackbarHostState
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val path = SafFiles.copyToCache(context, uri, "$partition.img")
-        scope.launch {
-            busy(true)
-            val op = ops()
-            if (op == null) { busy(false); return@launch }
-            op.flashPartition(partition, File(path))
-            busy(false)
+        scope.launchWithFeedback(snackbarHostState, "Flash $label", busy) {
+            ops()?.flashPartition(partition, File(path)) ?: false
         }
     }
     FilledTonalButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Flash $label") }
@@ -73,26 +79,31 @@ private fun FlashPartitionRow(label: String, partition: String, ops: () -> Fastb
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
+fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOperations, logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val ops = remember { FastbootOperations(context, logRepository) }
-    val adb = remember { AdbOperations(context, logRepository) }
-    var connected by remember { mutableStateOf(false) }
-    var adbConnected by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val ops = fastbootOperations
+    val adb = adbOperations
+    var connected by remember { mutableStateOf(ops.isConnected()) }
+    var adbConnected by remember { mutableStateOf(adb.isConnected()) }
     var busy by remember { mutableStateOf(false) }
     var manualCommand by rememberSaveable { mutableStateOf("") }
     var manualResult by rememberSaveable { mutableStateOf("") }
+    var ublStatusResult by rememberSaveable { mutableStateOf("") }
+    var adbCommand by rememberSaveable { mutableStateOf("") }
+    var adbResult by rememberSaveable { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
     val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val path = SafFiles.copyToCache(context, uri, "sideload.zip")
-        scope.launch { busy = true; adb.sideload(File(path)); busy = false }
+        scope.launchWithFeedback(snackbarHostState, "Sideload", { busy = it }) { adb.sideload(File(path)) }
     }
 
     Scaffold(
-        topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) }
+        topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -110,7 +121,11 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 FilledTonalButton(
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { busy = true; connected = ops.connect(); busy = false } }
+                    onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Connect fastboot", { busy = it }) {
+                            ops.connect().also { connected = it }
+                        }
+                    }
                 ) {
                     Icon(Icons.Filled.Usb, contentDescription = null)
                     Text(if (connected) "  Reconnect device" else "  Connect fastboot device")
@@ -120,28 +135,55 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
             item {
                 SectionHeading(Icons.Filled.Bolt, "Flash partition")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FlashPartitionRow("Recovery", "recovery", { ops }, { busy = it })
-                    FlashPartitionRow("Boot", "boot", { ops }, { busy = it })
-                    FlashPartitionRow("init_boot", "init_boot", { ops }, { busy = it })
-                    FlashPartitionRow("vendor_boot", "vendor_boot", { ops }, { busy = it })
-                    FlashPartitionRow("vbmeta", "vbmeta", { ops }, { busy = it })
+                    FlashPartitionRow("Recovery", "recovery", { ops }, { busy = it }, snackbarHostState)
+                    FlashPartitionRow("Boot", "boot", { ops }, { busy = it }, snackbarHostState)
+                    FlashPartitionRow("init_boot", "init_boot", { ops }, { busy = it }, snackbarHostState)
+                    FlashPartitionRow("vendor_boot", "vendor_boot", { ops }, { busy = it }, snackbarHostState)
+                    FlashPartitionRow("vbmeta", "vbmeta", { ops }, { busy = it }, snackbarHostState)
                 }
             }
 
             item {
                 SectionHeading(Icons.Filled.RestartAlt, "Reboot")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.BOOTLOADER); connected = false } }) { Text("Bootloader") }
-                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.RECOVERY); connected = false } }) { Text("Recovery") }
-                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.SYSTEM); connected = false } }) { Text("System") }
-                    FilledTonalButton(onClick = { scope.launch { ops.reboot(FastbootRebootTarget.FASTBOOTD); connected = false } }) { Text("FastbootD") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to Bootloader") { ops.reboot(FastbootRebootTarget.BOOTLOADER).also { connected = false } }
+                    }) { Text("Bootloader") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to Recovery") { ops.reboot(FastbootRebootTarget.RECOVERY).also { connected = false } }
+                    }) { Text("Recovery") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to System") { ops.reboot(FastbootRebootTarget.SYSTEM).also { connected = false } }
+                    }) { Text("System") }
+                    FilledTonalButton(onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Reboot to FastbootD") { ops.reboot(FastbootRebootTarget.FASTBOOTD).also { connected = false } }
+                    }) { Text("FastbootD") }
                 }
             }
 
             item {
                 SectionHeading(Icons.Filled.Info, "Status")
-                FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { scope.launch { ops.oem("device-info") } }) {
+                FilledTonalButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launchWithTextFeedback(
+                            snackbarHostState, "Check Status UBL",
+                            isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
+                            onResult = { ublStatusResult = it }
+                        ) { ops.rawCommandWithResponse("oem device-info") }
+                    }
+                ) {
                     Text("Check Status UBL (oem device-info)")
+                }
+                if (ublStatusResult.isNotBlank()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            ublStatusResult,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                    }
                 }
             }
 
@@ -149,11 +191,22 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Type a raw fastboot command exactly as the wire protocol expects " +
-                                "(colon-separated, e.g. getvar:product) — not the CLI-style spaced form.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    "Don't type the word \"fastboot\" — just the part after it.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "Want to run  fastboot oem device-info  ?  →  type only  oem device-info\n" +
+                                        "Want to run  fastboot getvar product  ?  →  type only  getvar:product  (colon, not space)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
                         // No floating `label` here on purpose — the label cutout in the
                         // border can look like a rendering glitch on a small phone
                         // screen. A plain caption above + an in-field leading icon reads
@@ -185,11 +238,12 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                             FilledTonalButton(
                                 enabled = manualCommand.isNotBlank() && !busy,
                                 onClick = {
-                                    scope.launch {
-                                        busy = true
-                                        manualResult = ops.rawCommandWithResponse(manualCommand.trim())
-                                        busy = false
-                                    }
+                                    scope.launchWithTextFeedback(
+                                        snackbarHostState, "Send command",
+                                        isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
+                                        setBusy = { busy = it },
+                                        onResult = { manualResult = it }
+                                    ) { ops.rawCommandWithResponse(manualCommand.trim()) }
                                 }
                             ) {
                                 Icon(Icons.Filled.Send, contentDescription = null)
@@ -202,11 +256,12 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                         if (manualResult.isNotBlank()) {
                             Text(
                                 manualResult,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (manualResult.startsWith("OK")) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = if (manualResult.contains("FAILED") || manualResult.contains("ERROR")) {
                                     MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
                                 }
                             )
                         }
@@ -227,7 +282,11 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 FilledTonalButton(
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { scope.launch { busy = true; adbConnected = adb.connect(); busy = false } }
+                    onClick = {
+                        scope.launchWithFeedback(snackbarHostState, "Connect ADB", { busy = it }) {
+                            adb.connect().also { adbConnected = it }
+                        }
+                    }
                 ) {
                     Icon(Icons.Filled.Usb, contentDescription = null)
                     Text(if (adbConnected) "  Reconnect ADB device" else "  Connect ADB device")
@@ -241,6 +300,57 @@ fun FastbootScreen(logRepository: LogRepository, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.Filled.CloudUpload, contentDescription = null)
                     Text("  Sideload ZIP")
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Terminal, "Manual ADB shell command")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Runs as  adb shell <what you type>  — e.g. type  getprop ro.build.version.release  " +
+                                "the same as you would after \"adb shell\" on a PC. Needs ADB connected above first.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        OutlinedTextField(
+                            value = adbCommand,
+                            onValueChange = { adbCommand = it },
+                            placeholder = { Text("getprop ro.build.version.release") },
+                            leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            FilledTonalButton(
+                                enabled = adbCommand.isNotBlank() && !busy,
+                                onClick = {
+                                    scope.launchWithTextFeedback(
+                                        snackbarHostState, "Send ADB command",
+                                        isSuccess = { true }, // adb shell has no structured success/fail signal to key off
+                                        setBusy = { busy = it },
+                                        onResult = { adbResult = it.ifBlank { "(no output)" } }
+                                    ) { adb.shell(adbCommand.trim()) }
+                                }
+                            ) {
+                                Icon(Icons.Filled.Send, contentDescription = null)
+                                Text("  Send")
+                            }
+                        }
+                        if (adbResult.isNotBlank()) {
+                            Text(
+                                adbResult,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
 

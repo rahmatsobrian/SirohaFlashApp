@@ -38,7 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.ExecutorProvider
+import com.siroha.flashtool.core.FastbootOperations
 import com.siroha.flashtool.ui.components.DeviceStatusCard
 import com.siroha.flashtool.ui.components.SirohaTopBar
 import com.siroha.flashtool.ui.navigation.Routes
@@ -95,7 +97,12 @@ private val sections = listOf(
 )
 
 @Composable
-fun HomeScreen(executorProvider: ExecutorProvider, onNavigate: (String) -> Unit) {
+fun HomeScreen(
+    executorProvider: ExecutorProvider,
+    fastbootOperations: FastbootOperations,
+    adbOperations: AdbOperations,
+    onNavigate: (String) -> Unit
+) {
     Scaffold(
         topBar = { SirohaTopBar("Siroha Flash Tool") }
     ) { padding ->
@@ -104,7 +111,7 @@ fun HomeScreen(executorProvider: ExecutorProvider, onNavigate: (String) -> Unit)
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(padding)
         ) {
-            item { DeviceStatusCard(executorProvider) }
+            item { DeviceStatusCard(executorProvider, fastbootOperations, adbOperations) }
 
             item {
                 // Differentiator card: orients a first-time user to the two

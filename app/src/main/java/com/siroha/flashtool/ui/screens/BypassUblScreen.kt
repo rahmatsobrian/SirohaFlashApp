@@ -16,6 +16,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,11 +43,13 @@ fun BypassUblScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var output by remember { mutableStateOf(listOf<String>()) }
     var running by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { SirohaTopBar("Bypass UBL — Redmi 4A", icon = Icons.Filled.Shield, onBack = onBack) }
+        topBar = { SirohaTopBar("Bypass UBL — Redmi 4A", icon = Icons.Filled.Shield, onBack = onBack) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -80,6 +84,11 @@ fun BypassUblScreen(
                             val ops = FlashOperations(context, executor, logRepository)
                             ops.runBypassUblRedmi4A().collect { line -> output = output + line }
                             running = false
+                            val hadError = output.any { it.contains("[error]", ignoreCase = true) }
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarHostState.showSnackbar(
+                                if (hadError) "Bypass UBL — failed (see output below)" else "Bypass UBL — finished (see output below)"
+                            )
                         }
                     }
                 ) { Text(if (running) "Running..." else "Start Bypass UBL") }
