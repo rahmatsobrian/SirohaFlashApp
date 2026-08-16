@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Card
@@ -268,6 +269,20 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                         }
                     }
                 }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)")
+                val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val path = SafFiles.copyToCache(context, uri, "twrp.img")
+                    scope.launchWithFeedback(snackbarHostState, "Boot TWRP image", { busy = it }) { ops.boot(File(path)) }
+                }
+                FilledTonalButton(
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { twrpPicker.launch(arrayOf("*/*")) }
+                ) { Text("Boot TWRP image") }
             }
 
             item {

@@ -17,7 +17,9 @@ import com.siroha.flashtool.ui.screens.BypassUblScreen
 import com.siroha.flashtool.ui.screens.FastbootScreen
 import com.siroha.flashtool.ui.screens.FrpToolScreen
 import com.siroha.flashtool.ui.screens.GsiToolScreen
-import com.siroha.flashtool.ui.screens.GuideScreen
+import com.siroha.flashtool.ui.screens.GuideEdlScreen
+import com.siroha.flashtool.ui.screens.GuideFastbootScreen
+import com.siroha.flashtool.ui.screens.GuideMiToolScreen
 import com.siroha.flashtool.ui.screens.HomeScreen
 import com.siroha.flashtool.ui.screens.LogsScreen
 import com.siroha.flashtool.ui.screens.MiToolScreen
@@ -36,7 +38,9 @@ object Routes {
     const val FRP_TOOL = "frp_tool"
     const val USB_FIX = "usb_fix"
     const val REQUIREMENTS = "requirements"
-    const val GUIDE = "guide"
+    const val GUIDE_EDL = "guide_edl"
+    const val GUIDE_FASTBOOT = "guide_fastboot"
+    const val GUIDE_MITOOL = "guide_mitool"
     const val BYPASS_UBL = "bypass_ubl"
     const val MITOOL = "mitool"
     const val MIUNLOCK = "miunlock"
@@ -121,8 +125,14 @@ fun SirohaNavGraph(
         composable(Routes.REQUIREMENTS) {
             RequirementsScreen(executorProvider = executorProvider, onBack = { navController.popBackStack() })
         }
-        composable(Routes.GUIDE) {
-            GuideScreen(onBack = { navController.popBackStack() })
+        composable(Routes.GUIDE_EDL) {
+            GuideEdlScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.GUIDE_FASTBOOT) {
+            GuideFastbootScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.GUIDE_MITOOL) {
+            GuideMiToolScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.BYPASS_UBL) {
             BypassUblScreen(

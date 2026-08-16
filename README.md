@@ -95,7 +95,11 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
   and what's on USB right now, including a specific "EDL (9008) mode
   detected" state so you can tell the target actually entered EDL mode
   without needing to start a flash first.
-- **Requirements & Status**, **USB/OTG Fix**, **Guide**, **About** screens.
+- **Guide split by transport** — one combined Guide screen became three
+  (EDL, Fastboot, MiTool), each reachable from a "Guide" entry at the
+  bottom of its own section on Home instead of one generic entry buried
+  under "Info".
+- **Requirements & Status**, **USB/OTG Fix**, **About** screens.
 - **Logs screen** — structured, timestamped, exportable via the share sheet.
 - CI workflow — builds debug+release, tests, lint, zero repo secrets,
   self-generates and commits the Gradle wrapper if missing.

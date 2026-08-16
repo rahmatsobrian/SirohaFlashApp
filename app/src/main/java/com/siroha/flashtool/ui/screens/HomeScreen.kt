@@ -60,6 +60,7 @@ private val sections = listOf(
         listOf(
             MenuEntry("QDL Flash (EDL 9008)", "Firehose loader + rawprogram/patch, with partition checklist", Icons.Filled.Bolt, Routes.QDL_FLASH),
             MenuEntry("Bypass UBL — Redmi 4A (rolex)", "Device-specific bootloader-unlock bypass", Icons.Filled.Shield, Routes.BYPASS_UBL),
+            MenuEntry("Guide", "EDL mode, QDL flashing, wiring up qdl for a new ABI", Icons.Filled.MenuBook, Routes.GUIDE_EDL),
         )
     ),
     MenuSection(
@@ -69,6 +70,7 @@ private val sections = listOf(
             MenuEntry("GSI ROM Flash Tool", "Dynamic partitions: erase system, flash GSI", Icons.Filled.RocketLaunch, Routes.GSI_TOOL),
             MenuEntry("A/B Partition Tool", "Slot-aware flashing, active slot switch", Icons.Filled.SwapHoriz, Routes.AB_PARTITION),
             MenuEntry("FRP Remove Tool", "SPRD via fastboot; Samsung/SPRD-MTK via ADB", Icons.Filled.Lock, Routes.FRP_TOOL),
+            MenuEntry("Guide", "Fastboot flashing, GSI sequence, A/B, FRP, manual command syntax", Icons.Filled.MenuBook, Routes.GUIDE_FASTBOOT),
         )
     ),
     MenuSection(
@@ -76,6 +78,7 @@ private val sections = listOf(
         listOf(
             MenuEntry("Mi Unlock", "Log in, then unlock the bootloader via Xiaomi's account API", Icons.Filled.LockOpen, Routes.MIUNLOCK),
             MenuEntry("MiTool", "Flash fastboot ROM by folder, extract a file from a ROM ZIP", Icons.Filled.Extension, Routes.MITOOL),
+            MenuEntry("Guide", "Mi Unlock steps, Flash Fastboot ROM, Firmware Content Extractor", Icons.Filled.MenuBook, Routes.GUIDE_MITOOL),
         )
     ),
     MenuSection(
@@ -90,7 +93,6 @@ private val sections = listOf(
     MenuSection(
         Icons.Filled.Info, "Info",
         listOf(
-            MenuEntry("Guide", "Step-by-step: EDL, fastboot, GSI, wiring qdl", Icons.Filled.MenuBook, Routes.GUIDE),
             MenuEntry("About", "Credits, links, version, disclaimer", Icons.Filled.Info, Routes.ABOUT),
         )
     ),
