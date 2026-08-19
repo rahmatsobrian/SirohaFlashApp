@@ -203,7 +203,7 @@ class FastbootOperations(
      * different, and useless, from one run to the next.
      */
     suspend fun rawCommandWithResponse(command: String): String = withContext(Dispatchers.IO) {
-        val c = client ?: run { logAndReturnDisconnected(); return@withContext "Not connected — tap Connect first." }
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext "ERROR: Not connected — tap Connect first." }
 
         // `fastboot devices` is a HOST-side (PC-side) subcommand that lists
         // locally attached USB devices — it is never sent over the wire to

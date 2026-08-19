@@ -198,7 +198,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
                                 onClick = {
                                     scope.launchWithTextFeedback(
                                         snackbarHostState, "Send ADB command",
-                                        isSuccess = { true },
+                                        isSuccess = { !it.startsWith("ERROR:") },
                                         setBusy = { busy = it },
                                         onResult = { adbResult = it.ifBlank { "(no output)" } }
                                     ) { adb.shell(adbCommand.trim()) }

@@ -52,12 +52,26 @@ class ExecutorProvider(context: Context) {
     /**
      * Non-prompting status snapshot for live display (e.g. a "Working with
      * root/Shizuku" indicator on Home) — unlike [detect]/[requestAccess],
-     * this never triggers an su or Shizuku permission dialog, so it's safe
-     * to poll on a timer.
+     * this never triggers a NEW su or Shizuku permission dialog, so it's
+     * safe to poll on a timer.
      */
     data class PassiveStatus(val rootGranted: Boolean?, val shizukuReady: Boolean)
 
+    private var rootStatusPrimed = false
+
     suspend fun passiveStatus(): PassiveStatus = withContext(Dispatchers.IO) {
+        // libsu's Shell.isAppGrantedRoot() only returns an accurate value
+        // once a Shell has been created at least once in this process — if
+        // root was already granted at the Magisk/KernelSU/APatch level
+        // (the common case for "I already granted this app root"),
+        // creating that first Shell here is silent (no new prompt shown,
+        // since the grant already exists). It only shows a real prompt on
+        // a genuinely fresh install that has never requested root before —
+        // done once per app process, not on every poll, so it can't spam.
+        if (!rootStatusPrimed) {
+            rootStatusPrimed = true
+            runCatching { Shell.getShell() }
+        }
         PassiveStatus(
             rootGranted = Shell.isAppGrantedRoot(),
             shizukuReady = shizuku.isReady()

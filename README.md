@@ -7,6 +7,25 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
+- **Home's Live Status now auto-connects fastboot/ADB when detected** —
+  previously, Home only *displayed* device presence; every tool screen
+  still needed its own manual Connect tap even after Home showed a
+  device. Now, as soon as Home detects a fastboot- or ADB-mode device, it
+  connects automatically in the background (once per detection), so by
+  the time you open any tool screen it's already connected.
+- **Fixed: root not detected on Home until visiting Requirements first** —
+  the root-checking library (libsu) only returns an accurate answer once
+  a shell session has been created at least once in the app's lifetime;
+  Home's passive status checker never did that, so it stayed on
+  "Checking..." until some other screen happened to trigger it. Home now
+  primes this once per app launch — silent if root was already granted,
+  and only shows a real prompt on a device that's never granted this app
+  root before.
+- **Fixed: Toasts claimed success even when nothing was connected** — the
+  "not connected" messages from fastboot/ADB manual commands didn't
+  contain the words the success/fail check was looking for, so a
+  disconnected, garbage-input command could show a green "success" toast.
+  Both now return a message the check correctly reads as a failure.
 - **Fastboot/ADB connections now persist across screens** — `FastbootOperations`
   and `AdbOperations` are app-wide singletons (created once in
   `SirohaApplication`) instead of one private instance per screen. Connect

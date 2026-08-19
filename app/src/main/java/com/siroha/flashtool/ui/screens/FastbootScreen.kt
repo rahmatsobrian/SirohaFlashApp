@@ -348,7 +348,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                                 onClick = {
                                     scope.launchWithTextFeedback(
                                         snackbarHostState, "Send ADB command",
-                                        isSuccess = { true }, // adb shell has no structured success/fail signal to key off
+                                        isSuccess = { !it.startsWith("ERROR:") },
                                         setBusy = { busy = it },
                                         onResult = { adbResult = it.ifBlank { "(no output)" } }
                                     ) { adb.shell(adbCommand.trim()) }

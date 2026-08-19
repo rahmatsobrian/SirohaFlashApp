@@ -77,7 +77,7 @@ class AdbOperations(
         val c = client
         if (c == null) {
             log.error(TAG, "Not connected — call connect() first.")
-            return@withContext ""
+            return@withContext "ERROR: Not connected — tap Connect first."
         }
         log.info(TAG, "adb shell $command")
         val output = c.runService("shell:$command")

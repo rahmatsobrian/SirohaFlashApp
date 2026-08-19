@@ -81,6 +81,39 @@ fun DeviceStatusCard(
         }
     }
 
+    // Auto-connect as soon as a fastboot/ADB device is detected here, so a
+    // device that's already "connected" per Home doesn't then need a
+    // separate manual Connect tap on every other tool screen too — they all
+    // share the same FastbootOperations/AdbOperations instance, so
+    // connecting once from wherever it's first detected is enough. Each
+    // category is only auto-attempted once per detection (resets if the
+    // device disappears) so a permission denial doesn't get retried in a
+    // tight loop every poll.
+    var fastbootAutoConnectTried by remember { mutableStateOf(false) }
+    var adbAutoConnectTried by remember { mutableStateOf(false) }
+    LaunchedEffect(usbStatus, fastbootOperations, adbOperations) {
+        when (usbStatus) {
+            is UsbStatus.Fastboot -> {
+                if (fastbootOperations != null && !fastbootOperations.isConnected() && !fastbootAutoConnectTried) {
+                    fastbootAutoConnectTried = true
+                    fastbootOperations.connect()
+                    tick++ // refresh the displayed status right away instead of waiting for the next poll
+                }
+            }
+            is UsbStatus.Adb -> {
+                if (adbOperations != null && !adbOperations.isConnected() && !adbAutoConnectTried) {
+                    adbAutoConnectTried = true
+                    adbOperations.connect()
+                    tick++
+                }
+            }
+            else -> {
+                fastbootAutoConnectTried = false
+                adbAutoConnectTried = false
+            }
+        }
+    }
+
     // Auto-poll while this card is part of the composition (e.g. while Home
     // is on screen) — cancels automatically when the user navigates away.
     LaunchedEffect(Unit) {
