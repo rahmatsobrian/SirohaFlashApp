@@ -7,6 +7,10 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
+- **Snackbars are swipe-to-dismiss** — Material3's plain `SnackbarHost`
+  doesn't support that gesture on its own; every screen's Snackbar host
+  now wraps it in a `SwipeToDismissBox` so a result toast can be swiped
+  away immediately instead of waiting out its auto-dismiss timer.
 - **ADB shell v2 protocol (`shell,v2,raw:`)** — the legacy `shell:` service
   has no exit-code signal at the wire protocol level at all, which is why
   a failed command with no output used to look identical to a successful

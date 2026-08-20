@@ -26,8 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import com.siroha.flashtool.ui.components.DismissibleSnackbarHost
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,7 +73,7 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
 
     Scaffold(
         topBar = { SirohaTopBar("MiTool", icon = Icons.Filled.Extension, onBack = onBack) },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
