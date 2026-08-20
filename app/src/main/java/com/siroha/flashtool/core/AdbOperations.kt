@@ -3,6 +3,8 @@ package com.siroha.flashtool.core
 import android.content.Context
 import com.siroha.flashtool.data.LogRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,46 +23,58 @@ class AdbOperations(
 
     private var client: AdbUsbClient? = null
 
+    // Guards connect() end-to-end: since this is now a single shared
+    // instance used from several screens (and Home's auto-connect can fire
+    // in the background too), two callers could otherwise race to open a
+    // second UsbDeviceConnection / claim the same interface concurrently —
+    // Android's USB host APIs are not safe to drive from two threads at
+    // once, and that race was the likely cause of a hang-then-crash when
+    // tapping into the app while a slow handshake (e.g. waiting on the
+    // target's "Allow USB debugging?" prompt) was still in flight.
+    private val connectMutex = Mutex()
+
     /**
      * Connects and completes the auth handshake. Returns true once CNXN
      * succeeds. If this is the first time pairing with this target, the
      * device will show an "Allow USB debugging?" dialog — this function
      * logs that and returns false; call it again after the user accepts.
      */
-    suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        if (client != null) return@withContext true // already connected — don't re-claim the interface
+    suspend fun connect(): Boolean = connectMutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (client != null) return@withContext true // already connected — don't re-claim the interface
 
-        val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
-        val device = devices.firstOrNull()
-        if (device == null) {
-            log.error(TAG, "No ADB-mode USB device found. Is USB debugging enabled and the device connected?")
-            return@withContext false
-        }
-        if (!UsbDeviceHelper.requestPermission(context, device)) {
-            log.error(TAG, "USB permission denied for ${device.deviceName}")
-            return@withContext false
-        }
-        val c = AdbUsbClient(context, device)
-        if (!c.open()) {
-            log.error(TAG, "Could not open USB connection / claim ADB interface")
-            return@withContext false
-        }
-        val keyPair = AdbKeyManager.loadOrGenerate(context)
-        when (val result = c.handshake(keyPair)) {
-            is AdbUsbClient.ConnectResult.Connected -> {
-                client = c
-                log.success(TAG, "ADB connected to ${device.deviceName}")
-                true
+            val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
+            val device = devices.firstOrNull()
+            if (device == null) {
+                log.error(TAG, "No ADB-mode USB device found. Is USB debugging enabled and the device connected?")
+                return@withContext false
             }
-            is AdbUsbClient.ConnectResult.AwaitingUserAuthorization -> {
-                log.warn(TAG, "Check the target device screen — tap \"Allow\" on the USB debugging prompt, then tap Connect again.")
-                c.close()
-                false
+            if (!UsbDeviceHelper.requestPermission(context, device)) {
+                log.error(TAG, "USB permission denied for ${device.deviceName}")
+                return@withContext false
             }
-            is AdbUsbClient.ConnectResult.Error -> {
-                log.error(TAG, "ADB handshake failed: ${result.reason}")
-                c.close()
-                false
+            val c = AdbUsbClient(context, device)
+            if (!c.open()) {
+                log.error(TAG, "Could not open USB connection / claim ADB interface")
+                return@withContext false
+            }
+            val keyPair = AdbKeyManager.loadOrGenerate(context)
+            when (val result = c.handshake(keyPair)) {
+                is AdbUsbClient.ConnectResult.Connected -> {
+                    client = c
+                    log.success(TAG, "ADB connected to ${device.deviceName}")
+                    true
+                }
+                is AdbUsbClient.ConnectResult.AwaitingUserAuthorization -> {
+                    log.warn(TAG, "Check the target device screen — tap \"Allow\" on the USB debugging prompt, then tap Connect again.")
+                    c.close()
+                    false
+                }
+                is AdbUsbClient.ConnectResult.Error -> {
+                    log.error(TAG, "ADB handshake failed: ${result.reason}")
+                    c.close()
+                    false
+                }
             }
         }
     }

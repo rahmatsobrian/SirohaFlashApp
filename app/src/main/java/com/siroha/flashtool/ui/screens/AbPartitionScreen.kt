@@ -191,6 +191,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
                             placeholder = { Text(if (adbShellMode) "getprop ro.build.version.release" else "devices") },
                             leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                             singleLine = true,
+                            enabled = !busy,
                             textStyle = MaterialTheme.typography.bodyLarge,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -207,7 +208,8 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
                                         snackbarHostState, "Send ADB command",
                                         text = { it.text }, success = { it.success },
                                         setBusy = { busy = it },
-                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } }
+                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } },
+                                        fallback = { e -> com.siroha.flashtool.core.AdbOperations.ShellOutcome("ERROR: ${e.javaClass.simpleName} — ${e.message ?: "unknown error"}", false) }
                                     ) {
                                         if (adbShellMode) adb.shellWithOutcome(adbCommand.trim()) else adb.rawCommand(adbCommand.trim())
                                     }

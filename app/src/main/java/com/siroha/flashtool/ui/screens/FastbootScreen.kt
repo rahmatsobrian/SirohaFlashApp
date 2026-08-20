@@ -221,6 +221,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             placeholder = { Text("getvar:product") },
                             leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                             singleLine = true,
+                            enabled = !busy,
                             textStyle = MaterialTheme.typography.bodyLarge,
                             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -343,6 +344,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             placeholder = { Text(if (adbShellMode) "getprop ro.build.version.release" else "devices") },
                             leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                             singleLine = true,
+                            enabled = !busy,
                             textStyle = MaterialTheme.typography.bodyLarge,
                             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -359,7 +361,8 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                                         snackbarHostState, "Send ADB command",
                                         text = { it.text }, success = { it.success },
                                         setBusy = { busy = it },
-                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } }
+                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } },
+                                        fallback = { e -> com.siroha.flashtool.core.AdbOperations.ShellOutcome("ERROR: ${e.javaClass.simpleName} — ${e.message ?: "unknown error"}", false) }
                                     ) {
                                         if (adbShellMode) adb.shellWithOutcome(adbCommand.trim()) else adb.rawCommand(adbCommand.trim())
                                     }

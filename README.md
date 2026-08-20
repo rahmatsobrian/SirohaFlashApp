@@ -7,6 +7,26 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
+- **Fixed a real crash**: tapping into the app (e.g. the manual command
+  text field) while a slow ADB/fastboot connect was still in flight (like
+  waiting on the target's "Allow USB debugging?" prompt) could hang then
+  force-close. Root cause: the Snackbar-feedback helpers used everywhere
+  didn't catch exceptions from the action they ran, so any I/O hiccup
+  during a slow operation propagated up uncaught and crashed the app —
+  now caught and shown as a failure Snackbar instead. Also added a mutex
+  around `connect()` on both the fastboot and ADB clients, since they're
+  shared singletons now (Home's auto-connect could otherwise race a
+  manual Connect tap on another screen for the same USB interface) — and
+  disabled the manual-command text fields while an operation is in flight,
+  as a second layer of protection against the same class of race.
+- **Crash logger** — installed once at startup with effectively zero
+  ongoing cost (it's a single exception-handler hook that does nothing
+  until an actual uncaught crash happens; no polling, no per-action
+  overhead). If the app does crash, the stack trace is written to a small
+  file first, then Android's normal crash handling proceeds exactly as
+  before (same "app has stopped" behavior). On the next launch, that saved
+  crash automatically appears at the top of the Logs screen so it can be
+  reviewed or shared without having to go find a file manually.
 - **Snackbars are swipe-to-dismiss** — Material3's plain `SnackbarHost`
   doesn't support that gesture on its own; every screen's Snackbar host
   now wraps it in a `SwipeToDismissBox` so a result toast can be swiped

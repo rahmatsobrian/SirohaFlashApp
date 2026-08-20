@@ -4,6 +4,8 @@ import android.content.Context
 import android.hardware.usb.UsbDevice
 import com.siroha.flashtool.data.LogRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -28,27 +30,35 @@ class FastbootOperations(
 
     private var client: FastbootUsbClient? = null
 
-    suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        if (client != null) return@withContext true // already connected — don't re-claim the interface
+    // See AdbOperations' connectMutex for why this exists: this instance is
+    // now shared across screens plus Home's background auto-connect, so
+    // without a lock two callers could race to open/claim the same USB
+    // interface concurrently.
+    private val connectMutex = Mutex()
 
-        val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyFastbootDevice(it) }
-        val device = devices.firstOrNull()
-        if (device == null) {
-            log.error(TAG, "No fastboot-mode USB device found. Is it connected and in fastboot mode?")
-            return@withContext false
+    suspend fun connect(): Boolean = connectMutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (client != null) return@withContext true // already connected — don't re-claim the interface
+
+            val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyFastbootDevice(it) }
+            val device = devices.firstOrNull()
+            if (device == null) {
+                log.error(TAG, "No fastboot-mode USB device found. Is it connected and in fastboot mode?")
+                return@withContext false
+            }
+            if (!UsbDeviceHelper.requestPermission(context, device)) {
+                log.error(TAG, "USB permission denied for ${device.deviceName}")
+                return@withContext false
+            }
+            val c = FastbootUsbClient(context, device)
+            if (!c.open()) {
+                log.error(TAG, "Could not open USB connection / claim fastboot interface")
+                return@withContext false
+            }
+            client = c
+            log.success(TAG, "Connected to fastboot device ${device.deviceName} (${device.vendorId.toHexId()}:${device.productId.toHexId()})")
+            true
         }
-        if (!UsbDeviceHelper.requestPermission(context, device)) {
-            log.error(TAG, "USB permission denied for ${device.deviceName}")
-            return@withContext false
-        }
-        val c = FastbootUsbClient(context, device)
-        if (!c.open()) {
-            log.error(TAG, "Could not open USB connection / claim fastboot interface")
-            return@withContext false
-        }
-        client = c
-        log.success(TAG, "Connected to fastboot device ${device.deviceName} (${device.vendorId.toHexId()}:${device.productId.toHexId()})")
-        true
     }
 
     fun disconnect() {
