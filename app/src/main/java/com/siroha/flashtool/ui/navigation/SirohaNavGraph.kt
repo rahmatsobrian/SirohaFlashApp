@@ -84,6 +84,7 @@ fun SirohaNavGraph(
         composable(Routes.QDL_FLASH) {
             QdlFlashScreen(
                 executorProvider = executorProvider,
+                fastbootOperations = fastbootOperations,
                 logRepository = logRepository,
                 onBack = { navController.popBackStack() }
             )

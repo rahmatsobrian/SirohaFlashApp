@@ -115,14 +115,29 @@ class AdbUsbClient(
      * taps "Allow" on the target device's dialog.
      */
     fun handshake(keyPair: AdbKeyManager.AdbKeyPair): ConnectResult {
-        sendMessage(A_CNXN, A_VERSION, MAX_PAYLOAD, "host::siroha-flash-tool\u0000".toByteArray())
+        // Advertise shell_v2 support (the modern shell,v2,... service, which
+        // frames stdout/stderr/exit-code separately) so a proper exit code
+        // is available for detecting real command success/failure — the
+        // legacy `shell:` service has no such signal at all, which is why
+        // a failed command with no error text used to look identical to a
+        // successful one with no output.
+        sendMessage(A_CNXN, A_VERSION, MAX_PAYLOAD, "host::features=shell_v2,cmd\u0000".toByteArray())
         val first = readMessage() ?: return ConnectResult.Error("no response to CNXN")
 
         return when (first.command) {
-            A_CNXN -> ConnectResult.Connected
+            A_CNXN -> { recordFeatures(first.data); ConnectResult.Connected }
             A_AUTH -> handleAuth(first, keyPair)
             else -> ConnectResult.Error("unexpected response 0x${first.command.toString(16)} to CNXN")
         }
+    }
+
+    /** True once [handshake] has completed and the device's own CNXN reply advertised `shell_v2` support. */
+    var supportsShellV2: Boolean = false
+        private set
+
+    private fun recordFeatures(cnxnPayload: ByteArray) {
+        val text = String(cnxnPayload, Charsets.UTF_8)
+        supportsShellV2 = text.contains("shell_v2")
     }
 
     private fun handleAuth(authMsg: AdbMessage, keyPair: AdbKeyManager.AdbKeyPair): ConnectResult {
@@ -132,7 +147,7 @@ class AdbUsbClient(
         val signature = AdbKeyManager.signToken(keyPair.private, token)
         sendMessage(A_AUTH, AUTH_SIGNATURE, 0, signature)
         val afterSig = readMessage() ?: return ConnectResult.Error("no response to AUTH SIGNATURE")
-        if (afterSig.command == A_CNXN) return ConnectResult.Connected
+        if (afterSig.command == A_CNXN) { recordFeatures(afterSig.data); return ConnectResult.Connected }
         if (afterSig.command != A_AUTH) return ConnectResult.Error("unexpected response 0x${afterSig.command.toString(16)} to SIGNATURE")
 
         // Device didn't recognize the signature (first-time pairing) — send our
@@ -144,6 +159,7 @@ class AdbUsbClient(
         val afterKey = readMessage(timeoutMs = HANDSHAKE_TIMEOUT_MS)
             ?: return ConnectResult.AwaitingUserAuthorization
         return if (afterKey.command == A_CNXN) {
+            recordFeatures(afterKey.data)
             ConnectResult.Connected
         } else {
             ConnectResult.AwaitingUserAuthorization
@@ -151,9 +167,11 @@ class AdbUsbClient(
     }
 
     /**
-     * Opens an ADB stream to [service] (e.g. "shell:content insert ..."),
-     * collects every WRTE payload until the device closes the stream, and
-     * returns the concatenated output.
+     * Opens an ADB stream to [service] (e.g. "shell:content insert ..." or
+     * a host-level service like "reboot:"), collects every WRTE payload
+     * until the device closes the stream, and returns the concatenated
+     * output. This is the legacy framing with no structured exit code —
+     * prefer [runShellV2] for shell commands when [supportsShellV2] is true.
      */
     fun runService(service: String): String {
         val localId = nextLocalId++
@@ -180,6 +198,64 @@ class AdbUsbClient(
             }
         }
         return output.toString()
+    }
+
+    data class ShellV2Result(val exitCode: Int?, val stdout: String, val stderr: String)
+
+    /**
+     * Runs a command via the `shell,v2,raw:` service, which frames stdout,
+     * stderr, and — critically — an actual exit code as separate typed
+     * sub-packets within each WRTE payload (kIdStdout=1, kIdStderr=2,
+     * kIdExit=3), instead of the legacy `shell:` service's single
+     * undifferentiated byte stream with no completion signal at all. This
+     * is what makes it possible to correctly tell "ran fine with no output"
+     * apart from "failed with no output" — the legacy service genuinely
+     * cannot distinguish the two.
+     */
+    fun runShellV2(command: String): ShellV2Result {
+        val localId = nextLocalId++
+        sendMessage(A_OPEN, localId, 0, "shell,v2,raw:$command\u0000".toByteArray())
+
+        var remoteId = 0
+        val stdout = StringBuilder()
+        val stderr = StringBuilder()
+        var exitCode: Int? = null
+        val pending = java.io.ByteArrayOutputStream() // carries a sub-frame header/body split across WRTE boundaries
+
+        while (true) {
+            val msg = readMessage() ?: break
+            when (msg.command) {
+                A_OKAY -> if (remoteId == 0) remoteId = msg.arg0
+                A_WRTE -> {
+                    remoteId = msg.arg0
+                    pending.write(msg.data)
+                    val buffer = pending.toByteArray()
+                    var offset = 0
+                    while (buffer.size - offset >= 5) {
+                        val id = buffer[offset].toInt() and 0xFF
+                        val length = ByteBuffer.wrap(buffer, offset + 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                        if (buffer.size - offset - 5 < length) break // frame body not fully received yet
+                        val body = buffer.copyOfRange(offset + 5, offset + 5 + length)
+                        when (id) {
+                            1 -> stdout.append(String(body, Charsets.UTF_8)) // kIdStdout
+                            2 -> stderr.append(String(body, Charsets.UTF_8)) // kIdStderr
+                            3 -> exitCode = if (body.isNotEmpty()) body[0].toInt() and 0xFF else null // kIdExit
+                            // kIdStdin(0)/kIdCloseStdin(4)/kIdWindowSizeChange(5)/kIdInvalid(255): not relevant to a one-shot command
+                        }
+                        offset += 5 + length
+                    }
+                    pending.reset()
+                    if (offset < buffer.size) pending.write(buffer, offset, buffer.size - offset)
+                    sendMessage(A_OKAY, localId, remoteId)
+                }
+                A_CLSE -> {
+                    if (remoteId != 0) sendMessage(A_OKAY, localId, remoteId)
+                    break
+                }
+                else -> { /* ignore unrelated traffic */ }
+            }
+        }
+        return ShellV2Result(exitCode, stdout.toString(), stderr.toString())
     }
 
     sealed class SideloadResult {

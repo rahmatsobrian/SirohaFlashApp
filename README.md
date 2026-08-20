@@ -7,6 +7,33 @@ Shizuku, or a from-scratch ADB-over-USB client** as the privilege backend.
 
 ## What's actually implemented
 
+- **ADB shell v2 protocol (`shell,v2,raw:`)** — the legacy `shell:` service
+  has no exit-code signal at the wire protocol level at all, which is why
+  a failed command with no output used to look identical to a successful
+  one with no output (both just returned empty text). Now, when the
+  connected device advertises `shell_v2` support (checked during the CNXN
+  handshake), commands run through the framed protocol variant instead,
+  which carries a genuine exit code — so success/failure is now actually
+  known, not guessed from text content. Falls back to the legacy service
+  (with an honest "can't verify success" note) on older Android versions
+  that don't support shell v2.
+- **Shell vs. raw ADB mode toggle** on the manual ADB command box — "Shell"
+  wraps input in `adb shell <command>` as before; "ADB" sends it as a bare
+  ADB service instead (e.g. `reboot`, `reboot:bootloader`), matching what
+  typing a bare `adb <command>` does on a PC. `devices` in ADB mode is
+  intercepted locally and lists the currently attached ADB device(s), the
+  same way fastboot's `devices` already worked — real `adb devices` is
+  answered by the local adb server on a PC and never reaches the device
+  either.
+- **QDL screen now correctly reflects fastboot connection state** — it
+  previously always showed "not connected yet" regardless of the actual
+  shared connection, because the screen was never given a reference to
+  the shared `FastbootOperations` at all. It also now explicitly flags
+  when a fastboot/ADB-mode device is connected but this screen specifically
+  needs EDL (9008) mode instead, rather than implying it's usable as-is.
+- **Live Status refresh button shows visible feedback** — the label reads
+  "Live status — refreshing..." and the refresh icon becomes a small
+  spinner for the duration of a manual refresh.
 - **Home's Live Status now auto-connects fastboot/ADB when detected** —
   previously, Home only *displayed* device presence; every tool screen
   still needed its own manual Connect tap even after Home showed a

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +45,9 @@ private sealed class UsbStatus {
     object Unrecognized : UsbStatus()
 }
 
+/** What kind of USB mode the screen showing this card actually cares about — changes the hint text when the wrong mode is detected instead. */
+enum class ExpectedUsbMode { ANY, EDL_ONLY }
+
 /**
  * Always-visible, auto-refreshing status strip: which execution backend is
  * actually active right now (root/Shizuku/neither) and what's plugged in
@@ -57,15 +61,18 @@ private sealed class UsbStatus {
 fun DeviceStatusCard(
     executorProvider: ExecutorProvider,
     fastbootOperations: FastbootOperations? = null,
-    adbOperations: AdbOperations? = null
+    adbOperations: AdbOperations? = null,
+    expectedMode: ExpectedUsbMode = ExpectedUsbMode.ANY
 ) {
     val context = LocalContext.current
     var rootGranted by remember { mutableStateOf<Boolean?>(null) }
     var shizukuReady by remember { mutableStateOf(false) }
     var usbStatus by remember { mutableStateOf<UsbStatus>(UsbStatus.None) }
     var tick by remember { mutableStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(tick) {
+        isRefreshing = true
         val status = executorProvider.passiveStatus()
         rootGranted = status.rootGranted
         shizukuReady = status.shizukuReady
@@ -79,6 +86,7 @@ fun DeviceStatusCard(
             devices.any { UsbDeviceHelper.isLikelyAdbDevice(it) } -> UsbStatus.Adb
             else -> UsbStatus.Unrecognized
         }
+        isRefreshing = false
     }
 
     // Auto-connect as soon as a fastboot/ADB device is detected here, so a
@@ -139,11 +147,23 @@ fun DeviceStatusCard(
         is UsbStatus.None -> "No USB device connected" to MaterialTheme.colorScheme.onSurfaceVariant
         is UsbStatus.Edl -> "EDL (9008) mode detected — %04x:%04x".format(s.vendorId, s.productId) to MaterialTheme.colorScheme.primary
         is UsbStatus.Fastboot ->
-            (if (fastbootOperations?.isConnected() == true) "Fastboot connected — ready in every menu" else "Fastboot-mode device detected — not connected yet") to
-                MaterialTheme.colorScheme.primary
+            when {
+                expectedMode == ExpectedUsbMode.EDL_ONLY ->
+                    "Fastboot-mode device connected, but this screen needs EDL (9008) mode — reboot the target into EDL" to MaterialTheme.colorScheme.error
+                fastbootOperations?.isConnected() == true ->
+                    "Fastboot connected — ready in every menu" to MaterialTheme.colorScheme.primary
+                else ->
+                    "Fastboot-mode device detected — not connected yet" to MaterialTheme.colorScheme.primary
+            }
         is UsbStatus.Adb ->
-            (if (adbOperations?.isConnected() == true) "ADB connected — ready in every menu" else "ADB-mode device detected — not connected yet") to
-                MaterialTheme.colorScheme.primary
+            when {
+                expectedMode == ExpectedUsbMode.EDL_ONLY ->
+                    "ADB-mode device connected, but this screen needs EDL (9008) mode — reboot the target into EDL" to MaterialTheme.colorScheme.error
+                adbOperations?.isConnected() == true ->
+                    "ADB connected — ready in every menu" to MaterialTheme.colorScheme.primary
+                else ->
+                    "ADB-mode device detected — not connected yet" to MaterialTheme.colorScheme.primary
+            }
         is UsbStatus.Unrecognized -> "USB device connected (not EDL/fastboot/ADB)" to MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -154,9 +174,17 @@ fun DeviceStatusCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Live status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                IconButton(onClick = { tick++ }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh status", modifier = Modifier.size(18.dp))
+                Text(
+                    if (isRefreshing) "Live status — refreshing..." else "Live status",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                IconButton(onClick = { tick++ }, modifier = Modifier.size(28.dp), enabled = !isRefreshing) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh status", modifier = Modifier.size(18.dp))
+                    }
                 }
             }
             StatusRow(Icons.Filled.Security, executionLabel, executionColor)

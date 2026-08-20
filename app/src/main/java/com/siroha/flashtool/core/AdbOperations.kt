@@ -73,16 +73,90 @@ class AdbOperations(
     /** True once [connect] has succeeded and hasn't been [disconnect]ed. */
     fun isConnected(): Boolean = client != null
 
-    suspend fun shell(command: String): String = withContext(Dispatchers.IO) {
+    data class ShellOutcome(val text: String, val success: Boolean)
+
+    /**
+     * Runs `adb shell <command>`. Uses the modern `shell,v2,raw:` service
+     * (real exit code, so success/failure is actually known) when the
+     * connected device supports it; falls back to the legacy `shell:`
+     * service — which has NO exit-code signal at the protocol level at
+     * all — on older Android versions that don't. In that fallback case,
+     * [ShellOutcome.success] reports the honest truth: unknown, so it's
+     * never wrongly reported as either. Prefer this over the plain
+     * [shell] overload wherever the caller can act on success/failure.
+     */
+    suspend fun shellWithOutcome(command: String): ShellOutcome = withContext(Dispatchers.IO) {
         val c = client
         if (c == null) {
             log.error(TAG, "Not connected — call connect() first.")
-            return@withContext "ERROR: Not connected — tap Connect first."
+            return@withContext ShellOutcome("ERROR: Not connected — tap Connect first.", false)
         }
         log.info(TAG, "adb shell $command")
-        val output = c.runService("shell:$command")
+        if (c.supportsShellV2) {
+            val result = c.runShellV2(command)
+            val combined = buildString {
+                if (result.stdout.isNotEmpty()) append(result.stdout)
+                if (result.stderr.isNotEmpty()) {
+                    if (isNotEmpty()) append('\n')
+                    append(result.stderr)
+                }
+            }
+            if (combined.isNotBlank()) log.info(TAG, combined.trim())
+            val success = result.exitCode == 0
+            if (success) log.success(TAG, "exit code 0") else log.error(TAG, "exit code ${result.exitCode ?: "unknown"}")
+            ShellOutcome(combined.ifBlank { "(no output, exit code ${result.exitCode ?: "unknown"})" }, success)
+        } else {
+            val output = c.runService("shell:$command")
+            if (output.isNotBlank()) log.info(TAG, output.trim())
+            log.warn(TAG, "Device doesn't advertise shell_v2 — exit code unavailable, success/failure can't be determined from the protocol alone.")
+            ShellOutcome(output.ifBlank { "(no output — device doesn't support exit codes over legacy shell, so success/failure is unknown)" }, true)
+        }
+    }
+
+    /** Plain-text convenience wrapper over [shellWithOutcome] for callers that only want the output text. */
+    suspend fun shell(command: String): String = shellWithOutcome(command).text
+
+    /**
+     * Runs a raw host-level ADB service (NOT wrapped in `shell:`) — the
+     * ADB-protocol equivalent of typing a bare `adb <command>` on a PC
+     * rather than `adb shell <command>`. Most such commands (`devices`,
+     * `version`, `get-state`, ...) are actually answered entirely by the
+     * LOCAL adb server on a PC and never touch the device at all — same
+     * situation as fastboot's `devices`. Since this app has no separate
+     * local adb server process, `devices` is intercepted here the same
+     * way; anything else is sent as a literal ADB service name (e.g.
+     * `reboot`, `reboot:bootloader`, `root`, `remount`).
+     */
+    suspend fun rawCommand(command: String): ShellOutcome = withContext(Dispatchers.IO) {
+        val trimmed = command.trim()
+        if (trimmed.equals("devices", ignoreCase = true) || trimmed.startsWith("devices ")) {
+            val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
+            val text = if (devices.isEmpty()) {
+                "" // real `adb devices` prints nothing but a header when nothing is attached
+            } else {
+                devices.joinToString("\n") { device ->
+                    val serial = device.serialNumber ?: device.deviceName.substringAfterLast('/')
+                    "$serial\tdevice"
+                }
+            }
+            log.info(TAG, "adb devices\n$text")
+            return@withContext ShellOutcome(text.ifBlank { "(no devices)" }, true)
+        }
+
+        val c = client
+        if (c == null) {
+            log.error(TAG, "Not connected — call connect() first.")
+            return@withContext ShellOutcome("ERROR: Not connected — tap Connect first.", false)
+        }
+        log.info(TAG, "adb $trimmed")
+        val output = c.runService(trimmed)
         if (output.isNotBlank()) log.info(TAG, output.trim())
-        output
+        // Host-level services (reboot:, root, remount, ...) reply OKAY/FAIL
+        // at the ADB stream level rather than a shell exit code; runService
+        // doesn't currently surface that distinction, so — same honesty
+        // rule as the legacy shell fallback above — this doesn't claim a
+        // success it can't actually verify.
+        ShellOutcome(output.ifBlank { "(sent — no response text)" }, true)
     }
 
     /** Sideloads a ZIP (e.g. a Magisk or OTA package) to a device already booted into recovery. */

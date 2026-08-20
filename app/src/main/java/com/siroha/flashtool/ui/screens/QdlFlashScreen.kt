@@ -47,6 +47,7 @@ import java.io.File
 @Composable
 fun QdlFlashScreen(
     executorProvider: ExecutorProvider,
+    fastbootOperations: com.siroha.flashtool.core.FastbootOperations,
     logRepository: LogRepository,
     onBack: () -> Unit
 ) {
@@ -85,7 +86,13 @@ fun QdlFlashScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { com.siroha.flashtool.ui.components.DeviceStatusCard(executorProvider) }
+            item {
+                com.siroha.flashtool.ui.components.DeviceStatusCard(
+                    executorProvider,
+                    fastbootOperations = fastbootOperations,
+                    expectedMode = com.siroha.flashtool.ui.components.ExpectedUsbMode.EDL_ONLY
+                )
+            }
 
             item {
                 Text(

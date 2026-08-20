@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -50,7 +51,7 @@ import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
 import com.siroha.flashtool.ui.components.launchWithFeedback
-import com.siroha.flashtool.ui.components.launchWithTextFeedback
+import com.siroha.flashtool.ui.components.launchWithOutcomeFeedback
 import java.io.File
 
 /** A file-picker button that flashes the picked file straight to [partition] once tapped. */
@@ -77,6 +78,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
     var busy by remember { mutableStateOf(false) }
     var adbConnected by remember { mutableStateOf(adb.isConnected()) }
     var adbCommand by rememberSaveable { mutableStateOf("") }
+    var adbShellMode by rememberSaveable { mutableStateOf(true) }
     var adbResult by rememberSaveable { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
@@ -171,17 +173,22 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
             }
 
             item {
-                SectionHeading(Icons.Filled.Terminal, "Manual ADB shell command")
+                SectionHeading(Icons.Filled.Terminal, "Manual ADB command")
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = adbShellMode, onClick = { adbShellMode = true }, label = { Text("Shell") })
+                            FilterChip(selected = !adbShellMode, onClick = { adbShellMode = false }, label = { Text("ADB") })
+                        }
                         Text(
-                            "Runs as  adb shell <what you type>  — needs ADB connected above first.",
+                            if (adbShellMode) "Shell mode: runs as  adb shell <what you type>"
+                            else "ADB mode: bare  adb <what you type>  — e.g.  devices ,  reboot ,  reboot:bootloader",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(
                             value = adbCommand,
                             onValueChange = { adbCommand = it },
-                            placeholder = { Text("getprop ro.build.version.release") },
+                            placeholder = { Text(if (adbShellMode) "getprop ro.build.version.release" else "devices") },
                             leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyLarge,
@@ -196,12 +203,14 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
                             FilledTonalButton(
                                 enabled = adbCommand.isNotBlank() && !busy,
                                 onClick = {
-                                    scope.launchWithTextFeedback(
+                                    scope.launchWithOutcomeFeedback(
                                         snackbarHostState, "Send ADB command",
-                                        isSuccess = { !it.startsWith("ERROR:") },
+                                        text = { it.text }, success = { it.success },
                                         setBusy = { busy = it },
-                                        onResult = { adbResult = it.ifBlank { "(no output)" } }
-                                    ) { adb.shell(adbCommand.trim()) }
+                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } }
+                                    ) {
+                                        if (adbShellMode) adb.shellWithOutcome(adbCommand.trim()) else adb.rawCommand(adbCommand.trim())
+                                    }
                                 }
                             ) {
                                 Icon(Icons.Filled.Send, contentDescription = null)

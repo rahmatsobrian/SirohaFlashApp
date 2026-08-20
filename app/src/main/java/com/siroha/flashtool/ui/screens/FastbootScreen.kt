@@ -54,6 +54,7 @@ import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
 import com.siroha.flashtool.ui.components.launchWithFeedback
+import com.siroha.flashtool.ui.components.launchWithOutcomeFeedback
 import com.siroha.flashtool.ui.components.launchWithTextFeedback
 import kotlinx.coroutines.launch
 import java.io.File
@@ -94,6 +95,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
     var manualResult by rememberSaveable { mutableStateOf("") }
     var ublStatusResult by rememberSaveable { mutableStateOf("") }
     var adbCommand by rememberSaveable { mutableStateOf("") }
+    var adbShellMode by rememberSaveable { mutableStateOf(true) }
     var adbResult by rememberSaveable { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
@@ -320,18 +322,25 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
             }
 
             item {
-                SectionHeading(Icons.Filled.Terminal, "Manual ADB shell command")
+                SectionHeading(Icons.Filled.Terminal, "Manual ADB command")
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.material3.FilterChip(selected = adbShellMode, onClick = { adbShellMode = true }, label = { Text("Shell") })
+                            androidx.compose.material3.FilterChip(selected = !adbShellMode, onClick = { adbShellMode = false }, label = { Text("ADB") })
+                        }
                         Text(
-                            "Runs as  adb shell <what you type>  — e.g. type  getprop ro.build.version.release  " +
-                                "the same as you would after \"adb shell\" on a PC. Needs ADB connected above first.",
+                            if (adbShellMode) {
+                                "Shell mode: runs as  adb shell <what you type>  — e.g. type  getprop ro.build.version.release"
+                            } else {
+                                "ADB mode: runs as a bare  adb <what you type>  command, not wrapped in shell — e.g. type  devices  or  reboot  or  reboot:bootloader"
+                            },
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(
                             value = adbCommand,
                             onValueChange = { adbCommand = it },
-                            placeholder = { Text("getprop ro.build.version.release") },
+                            placeholder = { Text(if (adbShellMode) "getprop ro.build.version.release" else "devices") },
                             leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyLarge,
@@ -346,12 +355,14 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             FilledTonalButton(
                                 enabled = adbCommand.isNotBlank() && !busy,
                                 onClick = {
-                                    scope.launchWithTextFeedback(
+                                    scope.launchWithOutcomeFeedback(
                                         snackbarHostState, "Send ADB command",
-                                        isSuccess = { !it.startsWith("ERROR:") },
+                                        text = { it.text }, success = { it.success },
                                         setBusy = { busy = it },
-                                        onResult = { adbResult = it.ifBlank { "(no output)" } }
-                                    ) { adb.shell(adbCommand.trim()) }
+                                        onResult = { adbResult = it.text.ifBlank { "(no output)" } }
+                                    ) {
+                                        if (adbShellMode) adb.shellWithOutcome(adbCommand.trim()) else adb.rawCommand(adbCommand.trim())
+                                    }
                                 }
                             ) {
                                 Icon(Icons.Filled.Send, contentDescription = null)

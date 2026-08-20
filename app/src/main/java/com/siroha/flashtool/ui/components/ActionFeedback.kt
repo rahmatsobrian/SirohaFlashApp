@@ -57,3 +57,35 @@ fun CoroutineScope.launchWithTextFeedback(
         )
     }
 }
+
+/**
+ * For actions whose result already carries a genuine, protocol-verified
+ * success flag (e.g. an ADB shell v2 exit code) rather than one guessed by
+ * scanning result text for the word "ERROR" — takes any `(text, success)`-
+ * shaped result via the [text]/[success] extractors so it works with any
+ * such result type without a shared base class.
+ */
+fun <T> CoroutineScope.launchWithOutcomeFeedback(
+    snackbarHostState: SnackbarHostState,
+    label: String,
+    text: (T) -> String,
+    success: (T) -> Boolean,
+    setBusy: (Boolean) -> Unit = {},
+    onResult: (T) -> Unit = {},
+    action: suspend () -> T
+) {
+    launch {
+        setBusy(true)
+        val result = try {
+            action()
+        } finally {
+            setBusy(false)
+        }
+        onResult(result)
+        snackbarHostState.currentSnackbarData?.dismiss()
+        snackbarHostState.showSnackbar(
+            message = if (success(result)) "$label — success" else "$label — failed (see result below)",
+            duration = SnackbarDuration.Short
+        )
+    }
+}
