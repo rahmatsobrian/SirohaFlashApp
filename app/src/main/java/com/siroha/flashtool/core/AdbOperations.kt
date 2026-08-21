@@ -140,9 +140,16 @@ class AdbOperations(
      * local adb server process, `devices` is intercepted here the same
      * way; anything else is sent as a literal ADB service name (e.g.
      * `reboot`, `reboot:bootloader`, `root`, `remount`).
+     *
+     * The ADB wire protocol names these services `service[:argument]`
+     * (colon-delimited), but typing that felt unnatural next to every
+     * other command box in the app accepting plain spaces — so a natural
+     * `reboot bootloader` is normalized to `reboot:bootloader` here before
+     * it's sent. Anything already containing a `:` is left exactly as
+     * typed, so the old colon syntax still works too.
      */
     suspend fun rawCommand(command: String): ShellOutcome = withContext(Dispatchers.IO) {
-        val trimmed = command.trim()
+        val trimmed = normalizeAdbHostCommand(command)
         if (trimmed.equals("devices", ignoreCase = true) || trimmed.startsWith("devices ")) {
             val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
             val text = if (devices.isEmpty()) {
@@ -203,5 +210,23 @@ class AdbOperations(
                 false
             }
         }
+    }
+
+    /**
+     * Translates a naturally-typed host command (`reboot bootloader`,
+     * `tcpip 5555`) into the ADB wire format (`reboot:bootloader`,
+     * `tcpip:5555`) by turning the FIRST space into a colon. Left alone if
+     * the command already contains a `:` (user typed the wire form
+     * themselves) or has no space at all (single-word services like
+     * `reboot`, `root`, `remount`, `devices` need no translation).
+     */
+    private fun normalizeAdbHostCommand(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.contains(':')) return trimmed
+        val spaceIndex = trimmed.indexOf(' ')
+        if (spaceIndex == -1) return trimmed
+        val head = trimmed.substring(0, spaceIndex)
+        val rest = trimmed.substring(spaceIndex + 1).trim()
+        return if (rest.isEmpty()) head else "$head:$rest"
     }
 }

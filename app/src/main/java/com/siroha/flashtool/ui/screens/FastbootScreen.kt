@@ -334,7 +334,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             if (adbShellMode) {
                                 "Shell mode: runs as  adb shell <what you type>  — e.g. type  getprop ro.build.version.release"
                             } else {
-                                "ADB mode: runs as a bare  adb <what you type>  command, not wrapped in shell — e.g. type  devices  or  reboot  or  reboot:bootloader"
+                                "ADB mode: runs as a bare  adb <what you type>  command, not wrapped in shell — e.g. type  devices  or  reboot  or  reboot bootloader"
                             },
                             style = MaterialTheme.typography.bodyMedium
                         )

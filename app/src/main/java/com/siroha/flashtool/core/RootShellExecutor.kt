@@ -28,20 +28,44 @@ class RootShellExecutor : ShellExecutor {
         )
     }
 
+    // libsu's Shell.getShell() throws (NoShellException and friends) rather
+    // than returning a failure value whenever it can't hand back a working
+    // shell — e.g. su was revoked after being granted earlier this session,
+    // the su binary hiccups, or getShell() races with another caller
+    // touching the global shell (Settings' "Use Root" button and
+    // Requirements' "Run checks" both call this, and Live Status polls
+    // root status in the background at the same time). Left unguarded,
+    // that exception propagates out of the coroutine this runs in and
+    // force-closes the app — which is why this used to crash for root but
+    // never for Shizuku (ShizukuShellExecutor already catches Throwable
+    // around every Shizuku call above). Catching here makes root behave
+    // the same way: report "not ready" instead of taking the app down.
     override suspend fun isReady(): Boolean = withContext(Dispatchers.IO) {
-        Shell.getShell().isRoot
+        try {
+            Shell.getShell().isRoot
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override suspend fun requestAccess(): Boolean = withContext(Dispatchers.IO) {
         // libsu triggers the su prompt lazily on first getShell() call.
-        Shell.getShell().isRoot
+        try {
+            Shell.getShell().isRoot
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override suspend fun exec(command: String): ShellResult = withContext(Dispatchers.IO) {
-        val out = mutableListOf<String>()
-        val err = mutableListOf<String>()
-        val code = Shell.cmd(command).to(out, err).exec().code
-        ShellResult(code, out, err)
+        try {
+            val out = mutableListOf<String>()
+            val err = mutableListOf<String>()
+            val code = Shell.cmd(command).to(out, err).exec().code
+            ShellResult(code, out, err)
+        } catch (t: Throwable) {
+            ShellResult(-1, emptyList(), listOf("Root shell error: ${t.message ?: t.javaClass.simpleName}"))
+        }
     }
 
     /**
@@ -50,9 +74,15 @@ class RootShellExecutor : ShellExecutor {
      * as it's produced, rather than waiting for the whole command to finish.
      */
     override fun execStreaming(command: String): Flow<String> = callbackFlow {
-        val process = ProcessBuilder("su", "-c", command)
-            .redirectErrorStream(true)
-            .start()
+        val process = try {
+            ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(true)
+                .start()
+        } catch (t: Throwable) {
+            trySend("[error] Failed to start root shell: ${t.message ?: t.javaClass.simpleName}")
+            close()
+            return@callbackFlow
+        }
         val reader = BufferedReader(InputStreamReader(process.inputStream))
         try {
             var line: String?
@@ -60,6 +90,8 @@ class RootShellExecutor : ShellExecutor {
                 line = reader.readLine() ?: break
                 trySend(line)
             }
+        } catch (t: Throwable) {
+            trySend("[error] Root shell stream error: ${t.message ?: t.javaClass.simpleName}")
         } finally {
             reader.close()
             process.waitFor()

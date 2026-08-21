@@ -196,10 +196,11 @@ class FastbootOperations(
         handleResult(c.command("oem $command", onInfo = { logInfoLine(it) }), "oem $command")
     }
 
-    /** Sends an arbitrary raw fastboot command verbatim — backs the manual command field. */
+    /** Sends an arbitrary raw fastboot command — backs the manual command field. */
     suspend fun rawCommand(command: String): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
-        handleResult(c.command(command, onInfo = { logInfoLine(it) }), command)
+        val normalized = normalizeFastbootCommand(command)
+        handleResult(c.command(normalized, onInfo = { logInfoLine(it) }), normalized)
     }
 
     /**
@@ -224,9 +225,10 @@ class FastbootOperations(
             return@withContext localDevicesOutput()
         }
 
+        val normalized = normalizeFastbootCommand(command)
         val startNanos = System.nanoTime()
         val infoLines = mutableListOf<String>()
-        val result = c.command(command) { line ->
+        val result = c.command(normalized) { line ->
             infoLines += line
             logInfoLine(line)
         }
@@ -235,15 +237,15 @@ class FastbootOperations(
         val body = infoLines.joinToString("") { "(bootloader) $it\n" }
         val status = when (result) {
             is FastbootUsbClient.FastbootResponse.Okay -> {
-                log.success(TAG, "$command: OKAY${if (result.message.isNotBlank()) " (${result.message})" else ""}")
+                log.success(TAG, "$normalized: OKAY${if (result.message.isNotBlank()) " (${result.message})" else ""}")
                 "OKAY${if (result.message.isNotBlank()) " ${result.message}" else ""} [ %.3fs ]".format(elapsedSeconds)
             }
             is FastbootUsbClient.FastbootResponse.Fail -> {
-                log.error(TAG, "$command: FAILED — ${result.message}")
+                log.error(TAG, "$normalized: FAILED — ${result.message}")
                 "FAILED (${result.message})"
             }
             is FastbootUsbClient.FastbootResponse.Error -> {
-                log.error(TAG, "$command: ERROR — ${result.reason}")
+                log.error(TAG, "$normalized: ERROR — ${result.reason}")
                 "ERROR (${result.reason})"
             }
         }
@@ -317,5 +319,45 @@ class FastbootOperations(
     private fun logAndReturnDisconnected(): String {
         log.error(TAG, "Not connected — call connect() first.")
         return ""
+    }
+
+    /**
+     * Translates the natural, space-separated syntax the real `fastboot`
+     * CLI accepts (`reboot bootloader`, `getvar all`, `erase cache`,
+     * `set_active a`) into the colon/hyphen wire format the bootloader
+     * protocol actually expects (`reboot-bootloader`, `getvar:all`,
+     * `erase:cache`, `set_active:a`) — so the manual command field feels
+     * like typing after `fastboot ` on a PC instead of requiring raw wire
+     * syntax. Commands that are already space-based on the wire (`oem ...`,
+     * `flashing ...`) and single-word commands (`continue`, `devices`) are
+     * passed through untouched, and anything already containing a `:` or
+     * `-` in the right place is left exactly as typed.
+     */
+    private fun normalizeFastbootCommand(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+
+        val parts = trimmed.split(Regex("\\s+"))
+        val head = parts[0].lowercase()
+        val rest = parts.drop(1)
+        if (rest.isEmpty()) return trimmed // single-word command — nothing to translate
+
+        return when (head) {
+            "reboot" -> when (rest[0].lowercase()) {
+                "bootloader" -> "reboot-bootloader"
+                "recovery" -> "reboot-recovery"
+                "fastboot" -> "reboot-fastboot"
+                else -> trimmed // unrecognized reboot target — pass through untouched
+            }
+            "getvar" -> "getvar:${rest.joinToString(" ")}"
+            "erase" -> "erase:${rest.joinToString(" ")}"
+            "set_active", "set-active" -> "set_active:${rest.joinToString(" ")}"
+            "delete-logical-partition" -> "delete-logical-partition:${rest.joinToString(" ")}"
+            "create-logical-partition" -> "create-logical-partition:${rest.joinToString(":")}"
+            "resize-logical-partition" -> "resize-logical-partition:${rest.joinToString(":")}"
+            // "oem ..." / "flashing ..." (unlock, lock, get_unlock_ability, ...) are
+            // already space-separated on the wire — leave them exactly as typed.
+            else -> trimmed
+        }
     }
 }

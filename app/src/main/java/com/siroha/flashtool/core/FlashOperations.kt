@@ -84,9 +84,11 @@ class FlashOperations(
             patchPaths.forEach { add(it) }
         }.joinToString(" ") { "'$it'" }
 
+        val command = withQdlLdLibraryPath(args)
         log.info(TAG, "Starting QDL flash: $args")
-        executor.execStreaming(args).collect { line ->
+        executor.execStreaming(command).collect { line ->
             log.info("qdl", line)
+            logMissingLibraryHint(line)
             emit(line)
         }
         log.success(TAG, "QDL flash stream finished (verify exit status in log)")
@@ -100,11 +102,41 @@ class FlashOperations(
             emit("[error] qdl binary missing for this ABI")
             return@flow
         }
-        val command = "'$qdl' $rawArgs"
+        val command = withQdlLdLibraryPath("'$qdl' $rawArgs")
         log.info(TAG, "Running manual QDL command: $command")
         executor.execStreaming(command).collect { line ->
             log.info("qdl", line)
+            logMissingLibraryHint(line)
             emit(line)
+        }
+    }
+
+    /**
+     * Prefixes a qdl invocation with LD_LIBRARY_PATH pointing at any bundled
+     * compat libraries (currently: libxml2, see [BinaryManager.qdlLdLibraryPath])
+     * so the dynamic linker can resolve dependencies qdl needs that Android's
+     * native-lib packaging can't ship under their real soname. A no-op
+     * (returns [qdlCommand] unchanged) if nothing was bundled for this ABI.
+     */
+    private fun withQdlLdLibraryPath(qdlCommand: String): String {
+        val extraLibPath = BinaryManager.qdlLdLibraryPath(context) ?: return qdlCommand
+        return "LD_LIBRARY_PATH=\"$extraLibPath:\$LD_LIBRARY_PATH\" $qdlCommand"
+    }
+
+    /**
+     * qdl failing to even start because a shared library it needs (e.g.
+     * libxml2.so.16) isn't present shows up as a raw, easy-to-miss native
+     * linker line ("CANNOT LINK EXECUTABLE ...: library ... not found").
+     * Surface it as an explicit, actionable log entry instead of leaving it
+     * to blend in with normal qdl output.
+     */
+    private fun logMissingLibraryHint(line: String) {
+        if (BinaryManager.isMissingLibraryError(line)) {
+            log.error(
+                TAG,
+                "qdl failed to start: a shared library it depends on is missing on this device/ABI. " +
+                    "Bundle it as jniLibs/<abi>/libxml2.so (see BinaryManager.qdlLdLibraryPath) so it can be resolved at runtime."
+            )
         }
     }
 

@@ -182,7 +182,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, adbOperations: Adb
                         }
                         Text(
                             if (adbShellMode) "Shell mode: runs as  adb shell <what you type>"
-                            else "ADB mode: bare  adb <what you type>  — e.g.  devices ,  reboot ,  reboot:bootloader",
+                            else "ADB mode: bare  adb <what you type>  — e.g.  devices ,  reboot ,  reboot bootloader",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(

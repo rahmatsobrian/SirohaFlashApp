@@ -21,7 +21,16 @@ class ExecutorProvider(context: Context) {
     private var active: ShellExecutor? = null
 
     suspend fun detect(): ShellExecutor {
-        active?.let { return it }
+        // Only ever short-circuit on a REAL backend (root/Shizuku) that was
+        // already picked. Never on the UNAVAILABLE fallback below — if this
+        // used to cache that too (as it did before), the very first call
+        // made before the user granted root/Shizuku (e.g. an early EDL/QDL
+        // screen visit) would permanently stick every later call to
+        // UNAVAILABLE for the rest of the app process, even after Live
+        // Status started reporting root/Shizuku as ready. Re-checking here
+        // instead lets it self-heal the moment either backend becomes
+        // available, without requiring a trip to Settings.
+        active?.let { if (it.mode != ExecutionMode.UNAVAILABLE) return it }
 
         val hasRoot = withContext(Dispatchers.IO) { Shell.isAppGrantedRoot() == true }
         if (hasRoot && root.requestAccess()) {
@@ -32,7 +41,7 @@ class ExecutorProvider(context: Context) {
             active = shizuku
             return shizuku
         }
-        return object : ShellExecutor {
+        val unavailable = object : ShellExecutor {
             override val mode = ExecutionMode.UNAVAILABLE
             override suspend fun isReady() = false
             override suspend fun requestAccess() = false
@@ -41,6 +50,8 @@ class ExecutorProvider(context: Context) {
             override fun execStreaming(command: String) =
                 kotlinx.coroutines.flow.flow { emit("[error] No root and no Shizuku access available.") }
         }
+        active = unavailable
+        return unavailable
     }
 
     fun setPreferred(executor: ShellExecutor) {
@@ -72,9 +83,25 @@ class ExecutorProvider(context: Context) {
             rootStatusPrimed = true
             runCatching { Shell.getShell() }
         }
-        PassiveStatus(
-            rootGranted = Shell.isAppGrantedRoot(),
-            shizukuReady = shizuku.isReady()
-        )
+        val rootGranted = Shell.isAppGrantedRoot()
+        val shizukuReady = shizuku.isReady()
+
+        // Live Status polls this every couple seconds and is very often the
+        // FIRST place a freshly-granted root/Shizuku permission is actually
+        // observed. Previously that observation stayed purely cosmetic —
+        // `active` (what detect()/current() hand out, what Settings' "Active:
+        // ..." label reflects, and what gates menus like EDL/QDL) was only
+        // ever updated by explicitly tapping "Use Root"/"Use Shizuku" in
+        // Settings, so the two could show contradictory states until the
+        // user did that. Mirror it here instead, so the backend Live Status
+        // says is working is the same one everything else actually uses —
+        // without ever overriding a backend that's already active (root
+        // stays root even if this poll also finds Shizuku ready).
+        if (active == null || active?.mode == ExecutionMode.UNAVAILABLE) {
+            if (rootGranted == true) active = root
+            else if (shizukuReady) active = shizuku
+        }
+
+        PassiveStatus(rootGranted = rootGranted, shizukuReady = shizukuReady)
     }
 }
