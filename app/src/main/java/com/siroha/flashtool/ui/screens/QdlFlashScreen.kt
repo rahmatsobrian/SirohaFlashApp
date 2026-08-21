@@ -20,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import com.siroha.flashtool.ui.components.DismissibleSnackbarHost
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +63,9 @@ fun QdlFlashScreen(
     var partitions by remember { mutableStateOf<List<RawProgramPartition>>(emptyList()) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var storage by remember { mutableStateOf("emmc") } // matches flash.sh menu 1 (emmc) / menu 2 (ufs)
+    var dryRun by remember { mutableStateOf(false) }
+    var allowMissing by remember { mutableStateOf(false) }
+    var finalizeProvisioning by remember { mutableStateOf(false) }
     var output by remember { mutableStateOf(listOf<String>()) }
     var running by remember { mutableStateOf(false) }
 
@@ -106,6 +110,55 @@ fun QdlFlashScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = storage == "emmc", onClick = { storage = "emmc" }, label = { Text("eMMC") })
                     FilterChip(selected = storage == "ufs", onClick = { storage = "ufs" }, label = { Text("UFS") })
+                }
+            }
+
+            item {
+                Column {
+                    Text("qdl options", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Dry run", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Simulate the flash without writing to the target — no EDL device required.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(checked = dryRun, onCheckedChange = { dryRun = it })
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Allow missing files", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Skip program/patch entries whose file isn't found instead of failing.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(checked = allowMissing, onCheckedChange = { allowMissing = it })
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Finalize provisioning", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "⚠️ Irreversible on the target device — qdl warns before starting. Only enable if you know what this does.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        Switch(checked = finalizeProvisioning, onCheckedChange = { finalizeProvisioning = it })
+                    }
                 }
             }
 
@@ -179,7 +232,9 @@ fun QdlFlashScreen(
                             // "unable to load programmer" error when no 9008/EDL device
                             // is present at all — check first so that case gets a clear
                             // message instead of looking like a bad loader/XML file.
-                            if (ops.checkEdlDevice().isEmpty()) {
+                            // Skipped for dry runs: the whole point of dry-run is testing
+                            // the loader/XML set without a device connected.
+                            if (!dryRun && ops.checkEdlDevice().isEmpty()) {
                                 output = output + "[error] No EDL (9008) device detected — connect the device in EDL mode before starting QDL flash."
                                 running = false
                                 snackbarHostState.currentSnackbarData?.dismiss()
@@ -195,7 +250,10 @@ fun QdlFlashScreen(
                                 rawprogramPaths = listOf(rawprogramLocalPath!!),
                                 patchPaths = listOf(patchPath),
                                 selectedLabels = if (partitions.isEmpty()) null else selected,
-                                storage = storage
+                                storage = storage,
+                                dryRun = dryRun,
+                                allowMissing = allowMissing,
+                                finalizeProvisioning = finalizeProvisioning
                             ).collect { line -> output = output + line }
                             running = false
                             val hadError = output.any { it.contains("[error]", ignoreCase = true) }
@@ -205,7 +263,7 @@ fun QdlFlashScreen(
                             )
                         }
                     }
-                ) { Text(if (running) "Flashing..." else "Start QDL Flash") }
+                ) { Text(if (running) "Flashing..." else if (dryRun) "Start Dry Run" else "Start QDL Flash") }
             }
 
             item { SectionHeading(Icons.Filled.Bolt, "Output") }

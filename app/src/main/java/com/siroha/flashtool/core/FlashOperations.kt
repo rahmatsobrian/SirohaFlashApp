@@ -36,6 +36,17 @@ class FlashOperations(
      * @param storage "emmc" or "ufs", matching flash.sh's menu 1/2 choice.
      * @param includeFolder Optional firmware folder passed as qdl's
      *   `--include`, for images referenced by filename only in the XML.
+     * @param dryRun Passes qdl's `--dry-run`: parses the loader/XML and
+     *   simulates the whole flash sequence without touching the target's
+     *   storage — useful for validating a loader/rawprogram/patch set before
+     *   committing to a real flash.
+     * @param allowMissing Passes qdl's `--allow-missing`: skips (instead of
+     *   failing on) any `<program>`/`<patch>` entry whose referenced file
+     *   isn't found under [includeFolder], rather than aborting the run.
+     * @param finalizeProvisioning Passes qdl's `--finalize-provisioning`.
+     *   qdl itself warns this is IRREVERSIBLE ("WARNING: irreversible
+     *   provisioning will start in 5s") — only pass true when the user has
+     *   explicitly opted in, never as a default.
      */
     fun runQdl(
         loaderPath: String,
@@ -43,7 +54,10 @@ class FlashOperations(
         patchPaths: List<String>,
         selectedLabels: Set<String>? = null,
         storage: String = "emmc",
-        includeFolder: String? = null
+        includeFolder: String? = null,
+        dryRun: Boolean = false,
+        allowMissing: Boolean = false,
+        finalizeProvisioning: Boolean = false
     ): Flow<String> = flow {
         val qdl = BinaryManager.qdlPath(context)
         if (qdl == null) {
@@ -73,6 +87,9 @@ class FlashOperations(
         val args = buildList {
             add(qdl)
             add("--debug")
+            if (dryRun) add("--dry-run")
+            if (allowMissing) add("--allow-missing")
+            if (finalizeProvisioning) add("--finalize-provisioning")
             add("--storage")
             add(storage)
             if (includeFolder != null) {
@@ -86,6 +103,12 @@ class FlashOperations(
 
         val command = withQdlLdLibraryPath(args)
         log.info(TAG, "Starting QDL flash: $args")
+        if (dryRun) {
+            log.warn(TAG, "Dry-run mode: qdl will simulate this flash without writing to the target's storage.")
+        }
+        if (finalizeProvisioning) {
+            log.warn(TAG, "finalize-provisioning is enabled: qdl treats this as IRREVERSIBLE once it starts.")
+        }
         executor.execStreaming(command).collect { line ->
             log.info("qdl", line)
             logMissingLibraryHint(line)
