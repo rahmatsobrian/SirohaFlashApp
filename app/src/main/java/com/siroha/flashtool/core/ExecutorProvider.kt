@@ -16,7 +16,11 @@ class ExecutorProvider(context: Context) {
     private val appContext = context.applicationContext
 
     val root: ShellExecutor by lazy { RootShellExecutor() }
-    val shizuku: ShellExecutor by lazy { ShizukuShellExecutor(appContext) }
+
+    // Declared as the concrete type (not ShellExecutor) so callers here can
+    // reach ensureBound() — a Shizuku-only concept (kicking off the async
+    // AIDL service bind early) that doesn't belong on the shared interface.
+    val shizuku: ShizukuShellExecutor by lazy { ShizukuShellExecutor(appContext) }
 
     private var active: ShellExecutor? = null
 
@@ -37,7 +41,17 @@ class ExecutorProvider(context: Context) {
             active = root
             return root
         }
-        if (shizuku.isReady() || shizuku.requestAccess()) {
+        // Always go through requestAccess() rather than
+        // `shizuku.isReady() || shizuku.requestAccess()`: that short-circuited
+        // on isReady()==true (the common "already granted last run" case)
+        // and skipped requestAccess() entirely — which was the ONLY place
+        // that triggered ShizukuShellExecutor's service bind. That left
+        // `active` pointing at Shizuku while its AIDL service was never
+        // bound, so the first real command failed with "Shizuku service not
+        // bound" until the user visited Settings and pressed "Use Shizuku"
+        // once. requestAccess() itself checks isReady() first internally,
+        // so this is not an extra prompt for the already-granted case.
+        if (shizuku.requestAccess()) {
             active = shizuku
             return shizuku
         }
@@ -99,7 +113,18 @@ class ExecutorProvider(context: Context) {
         // stays root even if this poll also finds Shizuku ready).
         if (active == null || active?.mode == ExecutionMode.UNAVAILABLE) {
             if (rootGranted == true) active = root
-            else if (shizukuReady) active = shizuku
+            else if (shizukuReady) {
+                // Start the (async) Shizuku service bind right here, the
+                // moment Live Status first observes Shizuku as ready —
+                // instead of leaving it unbound until either
+                // ExecutorProvider.detect() or the user's own "Use Shizuku"
+                // tap happens to run. Home screen polls this every couple
+                // seconds, so in practice binding is already done well
+                // before the user navigates to a screen that needs to run
+                // a command.
+                shizuku.ensureBound()
+                active = shizuku
+            }
         }
 
         PassiveStatus(rootGranted = rootGranted, shizukuReady = shizukuReady)

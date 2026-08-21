@@ -19,14 +19,14 @@ class RootShellExecutor : ShellExecutor {
 
     override val mode = ExecutionMode.ROOT
 
-    init {
-        Shell.enableVerboseLogging = false
-        Shell.setDefaultBuilder(
-            Shell.Builder.create()
-                .setFlags(Shell.FLAG_REDIRECT_STDERR)
-                .setTimeout(600) // long timeout: flashing a full ROM can take minutes
-        )
-    }
+    // NOTE: Shell.setDefaultBuilder() is intentionally NOT called here
+    // anymore. It now lives in SirohaApplication.onCreate(), set once
+    // before anything in the app can reach Shell.getShell(). Calling it
+    // again here — this class is instantiated lazily, well after Home
+    // screen's Live Status may have already created the global shell via
+    // passiveStatus() — throws "IllegalStateException: The main shell was
+    // already created" and force-closes the app the first time `.root` is
+    // accessed. See SirohaApplication for the full explanation.
 
     // libsu's Shell.getShell() throws (NoShellException and friends) rather
     // than returning a failure value whenever it can't hand back a working

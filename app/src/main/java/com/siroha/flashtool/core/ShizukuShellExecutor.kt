@@ -5,12 +5,14 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
 import kotlin.coroutines.resume
 
@@ -25,23 +27,35 @@ class ShizukuShellExecutor(private val context: Context) : ShellExecutor {
 
     override val mode = ExecutionMode.SHIZUKU
 
-    private var service: IShellService? = null
-    private var bound = false
+    // A CompletableDeferred rather than a plain nullable `service` field:
+    // bindUserService() is fire-and-forget (onServiceConnected fires on a
+    // later callback), and the old code only ever called bindIfNeeded()
+    // from inside requestAccess()'s success path — i.e. only when the user
+    // pressed "Use Shizuku" in Settings. If Shizuku was already granted
+    // from a PREVIOUS run (the common case), ExecutorProvider.detect() and
+    // passiveStatus() both short-circuit on isReady()==true and never call
+    // requestAccess(), so bindIfNeeded() never ran at all — the very first
+    // exec()/execStreaming() call (e.g. opening the QDL screen) hit `service
+    // == null` immediately and failed with "Shizuku service not bound",
+    // even though Settings showed "Active: SHIZUKU". Deferred + await lets
+    // any caller that arrives before binding finishes simply wait for it
+    // (bounded by a timeout) instead of failing outright.
+    private var serviceDeferred: CompletableDeferred<IShellService>? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            service = IShellService.Stub.asInterface(binder)
-            bound = true
+            serviceDeferred?.complete(IShellService.Stub.asInterface(binder))
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            service = null
-            bound = false
+            serviceDeferred = null
         }
     }
 
-    private fun bindIfNeeded() {
-        if (bound) return
+    private fun bindIfNeeded(): CompletableDeferred<IShellService> {
+        serviceDeferred?.let { existing -> if (!existing.isCancelled) return existing }
+        val deferred = CompletableDeferred<IShellService>()
+        serviceDeferred = deferred
         val args = Shizuku.UserServiceArgs(
             ComponentName(context.packageName, ShellUserService::class.java.name)
         )
@@ -50,7 +64,23 @@ class ShizukuShellExecutor(private val context: Context) : ShellExecutor {
             .debuggable(false)
             .version(1)
         Shizuku.bindUserService(args, connection)
+        return deferred
     }
+
+    /**
+     * Kicks off (async) binding without waiting for it, so a caller that
+     * already knows Shizuku is ready — e.g. ExecutorProvider as soon as
+     * Live Status/detect() observes it — can start the bind well before
+     * any screen actually needs to run a command, instead of leaving the
+     * first real command to discover an unbound service.
+     */
+    fun ensureBound() {
+        bindIfNeeded()
+    }
+
+    /** Waits for a bound service, starting the bind first if it hasn't been triggered yet. */
+    private suspend fun awaitService(timeoutMs: Long = 5000): IShellService? =
+        withTimeoutOrNull(timeoutMs) { bindIfNeeded().await() }
 
     override suspend fun isReady(): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -83,7 +113,8 @@ class ShizukuShellExecutor(private val context: Context) : ShellExecutor {
     }
 
     override suspend fun exec(command: String): ShellResult = withContext(Dispatchers.IO) {
-        val svc = service ?: return@withContext ShellResult(-1, emptyList(), listOf("Shizuku service not bound yet"))
+        val svc = awaitService()
+            ?: return@withContext ShellResult(-1, emptyList(), listOf("Shizuku service not bound yet"))
         parseUserServiceResult(svc.runCommand(command))
     }
 
@@ -94,7 +125,7 @@ class ShizukuShellExecutor(private val context: Context) : ShellExecutor {
      * which keeps the UI responsive for long qdl/flash operations.
      */
     override fun execStreaming(command: String): Flow<String> = flow {
-        val svc = service
+        val svc = awaitService()
         if (svc == null) {
             emit("[error] Shizuku service not bound")
             return@flow

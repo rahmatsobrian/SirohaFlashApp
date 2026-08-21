@@ -20,6 +20,10 @@ object BinaryManager {
         return if (candidate.exists()) candidate.absolutePath else null
     }
 
+    /** Directory the compat alias below is staged into. Outside the app's own
+     *  SELinux-isolated storage on purpose — see [wrapWithQdlLibraryPath]. */
+    private const val QDL_COMPAT_DIR = "/data/local/tmp/.siroha_qdl_compat"
+
     /**
      * qdl (like most qcserial/libxml2-based flashing tools) is dynamically
      * linked against libxml2, and its DT_NEEDED entry names the exact
@@ -33,35 +37,47 @@ object BinaryManager {
      *   CANNOT LINK EXECUTABLE ".../libqdl.so": library "libxml2.so.16"
      *   not found: needed by main executable
      *
-     * The fix: bundle the dependency as a build-legal "libxml2.so" (e.g.
-     * jniLibs/<abi>/libxml2.so — see jniLibs/ next to libqdl.so), then at
-     * runtime create a symlink under the app's own writable storage named
-     * "libxml2.so.16" pointing at it, and point the dynamic linker at that
-     * directory via LD_LIBRARY_PATH when qdl is launched (see
-     * [FlashOperations]). Returns null if no libxml2.so was bundled for
-     * this ABI — callers should still try running qdl in that case (it may
-     * not need it, or the device may already carry a compatible system
-     * libxml2.so.16), but should treat a "library ... not found" failure as
-     * expected rather than surprising.
+     * The fix ships the dependency as a build-legal "libxml2.so" next to
+     * libqdl.so (jniLibs/<abi>/libxml2.so) and stages an alias named
+     * "libxml2.so.16" at runtime. That staging is done by
+     * [wrapWithQdlLibraryPath], NOT here in the app process — see its doc
+     * comment for why an earlier version of this function (which symlinked
+     * the alias into the app's own filesDir) still failed under Shizuku.
      */
     fun qdlLdLibraryPath(context: Context): String? {
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val bundledXml2 = File(nativeDir, "libxml2.so")
-        if (!bundledXml2.exists()) return null
+        return if (bundledXml2.exists()) nativeDir else null
+    }
 
-        val compatDir = File(context.filesDir, "qdl-compat-libs").apply { mkdirs() }
-        val alias = File(compatDir, "libxml2.so.16")
-        if (!alias.exists()) {
-            runCatching {
-                android.system.Os.symlink(bundledXml2.absolutePath, alias.absolutePath)
-            }.recoverCatching {
-                // Some storage/filesystem configurations disallow symlinks —
-                // fall back to a plain copy under the alias name, which the
-                // linker treats identically to a symlink for its purposes.
-                bundledXml2.copyTo(alias, overwrite = true)
-            }
-        }
-        return if (alias.exists()) "${compatDir.absolutePath}:$nativeDir" else null
+    /**
+     * Wraps a qdl command with a shell prelude that stages the
+     * "libxml2.so.16" alias and prefixes LD_LIBRARY_PATH — run through
+     * whichever [ShellExecutor] (root or Shizuku) is about to execute qdl
+     * itself, rather than created ahead of time from the app's own process.
+     *
+     * That distinction is the actual fix for "the libxml2 error still
+     * happens": the app's own process can freely write into its private
+     * filesDir, but a non-root Shizuku shell runs as a different UID under
+     * a different SELinux domain and is NOT allowed to read another app's
+     * SELinux-isolated app_data_file storage — so an alias staged there was
+     * invisible to the very shell trying to use it (root mode happened to
+     * work, since su bypasses that isolation, which is why this looked
+     * "fixed" under root testing but "still occurs" under Shizuku). qdl's
+     * own nativeLibraryDir doesn't have that problem: the same shell about
+     * to exec libqdl.so from there can, by definition, also read
+     * libxml2.so sitting right next to it. So the copy happens as part of
+     * the same command the executor runs, staged into /data/local/tmp —
+     * world-readable, and already used elsewhere in this app
+     * (ShizukuShellExecutor's streaming log files) as the shared scratch
+     * space visible to both root and Shizuku's shell.
+     */
+    fun wrapWithQdlLibraryPath(context: Context, qdlCommand: String): String {
+        val nativeDir = qdlLdLibraryPath(context) ?: return qdlCommand
+        val bundledXml2 = "$nativeDir/libxml2.so"
+        val alias = "$QDL_COMPAT_DIR/libxml2.so.16"
+        val stage = "mkdir -p '$QDL_COMPAT_DIR' && cp -f '$bundledXml2' '$alias' 2>/dev/null"
+        return "$stage; LD_LIBRARY_PATH=\"$QDL_COMPAT_DIR:\$LD_LIBRARY_PATH\" $qdlCommand"
     }
 
     /**

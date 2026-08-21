@@ -112,16 +112,15 @@ class FlashOperations(
     }
 
     /**
-     * Prefixes a qdl invocation with LD_LIBRARY_PATH pointing at any bundled
-     * compat libraries (currently: libxml2, see [BinaryManager.qdlLdLibraryPath])
-     * so the dynamic linker can resolve dependencies qdl needs that Android's
-     * native-lib packaging can't ship under their real soname. A no-op
-     * (returns [qdlCommand] unchanged) if nothing was bundled for this ABI.
+     * Wraps a qdl invocation with a shell prelude that stages any bundled
+     * compat libraries (currently: libxml2, see
+     * [BinaryManager.wrapWithQdlLibraryPath]) under the exact versioned
+     * name qdl's dynamic linker looks for, run through the SAME executor
+     * (root or Shizuku) that's about to run qdl itself. A no-op (returns
+     * [qdlCommand] unchanged) if nothing was bundled for this ABI.
      */
-    private fun withQdlLdLibraryPath(qdlCommand: String): String {
-        val extraLibPath = BinaryManager.qdlLdLibraryPath(context) ?: return qdlCommand
-        return "LD_LIBRARY_PATH=\"$extraLibPath:\$LD_LIBRARY_PATH\" $qdlCommand"
-    }
+    private fun withQdlLdLibraryPath(qdlCommand: String): String =
+        BinaryManager.wrapWithQdlLibraryPath(context, qdlCommand)
 
     /**
      * qdl failing to even start because a shared library it needs (e.g.
