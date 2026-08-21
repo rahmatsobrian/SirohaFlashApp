@@ -43,6 +43,14 @@ object BinaryManager {
      * [wrapWithQdlLibraryPath], NOT here in the app process — see its doc
      * comment for why an earlier version of this function (which symlinked
      * the alias into the app's own filesDir) still failed under Shizuku.
+     *
+     * qdl's OTHER non-system dependency, libusb-1.0.so, doesn't have this
+     * versioned-soname problem — its DT_NEEDED entry is literally
+     * "libusb-1.0.so", which is already a build-legal jniLibs filename. It
+     * only needs to be *present* at jniLibs/<abi>/libusb-1.0.so and
+     * reachable via LD_LIBRARY_PATH; no alias/copy step required. See
+     * [wrapWithQdlLibraryPath], which puts nativeLibraryDir itself on
+     * LD_LIBRARY_PATH for exactly this case.
      */
     fun qdlLdLibraryPath(context: Context): String? {
         val nativeDir = context.applicationInfo.nativeLibraryDir
@@ -71,13 +79,23 @@ object BinaryManager {
      * world-readable, and already used elsewhere in this app
      * (ShizukuShellExecutor's streaming log files) as the shared scratch
      * space visible to both root and Shizuku's shell.
+     *
+     * LD_LIBRARY_PATH also includes nativeLibraryDir directly (in addition
+     * to the compat dir) — qdl's DT_RUNPATH is hard-coded to a Termux path
+     * from however it was originally built ("/data/data/com.termux/...")
+     * which doesn't exist in this app, so nothing resolves from
+     * nativeLibraryDir automatically; it has to be added explicitly. This
+     * is what lets any correctly-named dependency dropped into
+     * jniLibs/<abi>/ — e.g. libusb-1.0.so, once bundled — resolve without
+     * needing its own copy-to-/data/local/tmp special case the way the
+     * versioned libxml2.so.16 alias needs.
      */
     fun wrapWithQdlLibraryPath(context: Context, qdlCommand: String): String {
         val nativeDir = qdlLdLibraryPath(context) ?: return qdlCommand
         val bundledXml2 = "$nativeDir/libxml2.so"
         val alias = "$QDL_COMPAT_DIR/libxml2.so.16"
         val stage = "mkdir -p '$QDL_COMPAT_DIR' && cp -f '$bundledXml2' '$alias' 2>/dev/null"
-        return "$stage; LD_LIBRARY_PATH=\"$QDL_COMPAT_DIR:\$LD_LIBRARY_PATH\" $qdlCommand"
+        return "$stage; LD_LIBRARY_PATH=\"$QDL_COMPAT_DIR:$nativeDir:\$LD_LIBRARY_PATH\" $qdlCommand"
     }
 
     /**
