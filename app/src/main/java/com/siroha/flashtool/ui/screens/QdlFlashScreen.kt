@@ -175,6 +175,18 @@ fun QdlFlashScreen(
                             val executor = executorProvider.detect()
                             val ops = FlashOperations(context, executor, logRepository)
 
+                            // qdl on this app's arm64-v8a build prints the misleading
+                            // "unable to load programmer" error when no 9008/EDL device
+                            // is present at all — check first so that case gets a clear
+                            // message instead of looking like a bad loader/XML file.
+                            if (ops.checkEdlDevice().isEmpty()) {
+                                output = output + "[error] No EDL (9008) device detected — connect the device in EDL mode before starting QDL flash."
+                                running = false
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                                snackbarHostState.showSnackbar("QDL Flash — no EDL device connected")
+                                return@launch
+                            }
+
                             val loaderPath = SafFiles.copyToCache(context, loaderUri!!, "loader")
                             val patchPath = SafFiles.copyToCache(context, patchUri!!, "patch.xml")
 

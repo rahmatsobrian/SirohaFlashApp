@@ -108,6 +108,21 @@ object BinaryManager {
         line.contains("CANNOT LINK EXECUTABLE") && line.contains("not found")
 
     /**
+     * True if a raw qdl process's output is the misleading
+     * `unable to load programmer "<path>"` line this build of qdl
+     * (arm64-v8a, v2.2-26-g8c42508-dirty) prints. Despite the wording, this
+     * build reaches that message when it can't claim a 9008/EDL USB device
+     * at all — NOT only when the loader path is actually missing/unreadable.
+     * The other three ABIs bundled here (armeabi-v7a/x86/x86_64) are a
+     * different qdl build with a different usage string; this heuristic is
+     * specific to the arm64-v8a binary's behavior, so callers should still
+     * verify the loader path themselves before assuming "no device" is the
+     * whole story.
+     */
+    fun isLoadProgrammerError(line: String): Boolean =
+        line.contains("unable to load programmer")
+
+    /**
      * Copies a bypass-UBL asset directory (e.g. "bypass-ubl/Redmi4A-rolex") out
      * of the APK's assets into the app's private files dir, where a root/Shizuku
      * shell command can actually read it from an absolute path.

@@ -137,6 +137,16 @@ class FlashOperations(
                     "Bundle it as jniLibs/<abi>/libxml2.so (see BinaryManager.qdlLdLibraryPath) so it can be resolved at runtime."
             )
         }
+        if (BinaryManager.isLoadProgrammerError(line)) {
+            log.error(
+                TAG,
+                "qdl reported \"unable to load programmer\" — on this device's ABI build of qdl, this message " +
+                    "almost always means no 9008/EDL device was claimed over USB (misleading wording, not a " +
+                    "missing/corrupt loader file). Check: (1) device is actually in EDL/9008 mode and shows up " +
+                    "in the EDL device check, (2) the app has USB host permission for it, (3) only if the device " +
+                    "IS connected and this still happens, then re-check the loader path/permissions."
+            )
+        }
     }
 
     /**
