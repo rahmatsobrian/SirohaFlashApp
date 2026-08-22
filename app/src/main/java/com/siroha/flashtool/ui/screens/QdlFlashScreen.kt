@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -34,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+    import androidx.documentfile.provider.DocumentFile
+    import android.content.Intent
 import com.siroha.flashtool.core.ExecutorProvider
 import com.siroha.flashtool.core.FlashOperations
 import com.siroha.flashtool.core.RawProgramPartition
@@ -66,7 +69,10 @@ fun QdlFlashScreen(
     var dryRun by remember { mutableStateOf(false) }
     var allowMissing by remember { mutableStateOf(false) }
     var finalizeProvisioning by remember { mutableStateOf(false) }
-    var output by remember { mutableStateOf(listOf<String>()) }
+    var debugLog by remember { mutableStateOf(false) }
+    // HAPUS BARIS INI: var output by remember { mutableStateOf(listOf<String>()) }
+    // GANTI MENJADI:
+    val output = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     var running by remember { mutableStateOf(false) }
 
     val loaderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { loaderUri = it }
@@ -81,6 +87,41 @@ fun QdlFlashScreen(
         }
     }
     val patchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { patchUri = it }
+
+    // --- TEMPEL DI SINI ---
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val documentTree = DocumentFile.fromTreeUri(context, uri)
+            if (documentTree != null) {
+                val foundLoader = documentTree.listFiles().find {
+                    val name = it.name?.lowercase() ?: ""
+                    (name.endsWith(".mbn") || name.endsWith(".elf")) &&
+                    (name.contains("prog") || name.contains("firehose"))
+                }
+                val foundRawprogram = documentTree.listFiles().find {
+                    val name = it.name?.lowercase() ?: ""
+                    name.startsWith("rawprogram") && name.endsWith(".xml")
+                }
+                val foundPatch = documentTree.listFiles().find {
+                    val name = it.name?.lowercase() ?: ""
+                    name.startsWith("patch") && name.endsWith(".xml")
+                }
+
+                foundLoader?.let { loaderUri = it.uri }
+                foundPatch?.let { patchUri = it.uri }
+                foundRawprogram?.let { raw ->
+                    rawprogramUri = raw.uri
+                    val path = SafFiles.copyToCache(context, raw.uri, "rawprogram.xml")
+                    rawprogramLocalPath = path
+                    val parsed = runCatching { RawProgramXml.parsePartitions(File(path)) }.getOrDefault(emptyList())
+                    partitions = parsed
+                    selected = parsed.map { it.label }.toSet()
+                }
+            }
+        }
+    }
+    // -----------------------
 
     Scaffold(
         topBar = { SirohaTopBar("QDL Flash (EDL 9008)", icon = Icons.Filled.Bolt, onBack = onBack) },
@@ -114,53 +155,106 @@ fun QdlFlashScreen(
             }
 
             item {
-                Column {
-                    Text("qdl options", style = MaterialTheme.typography.labelLarge)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        // Ini rahasianya: otomatis memberi jarak kosong 18dp antar opsi
+                        verticalArrangement = Arrangement.spacedBy(18.dp) 
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Dry run", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Simulate the flash without writing to the target — no EDL device required.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                        // 1. Judul yang diperbaiki (Lebih besar & tegas)
+                        Text(
+                            text = "QDL FLASHING OPTIONS",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        // 2. Option: Dry run
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Dry run", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Simulate the flash without writing to the target — no EDL device required.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(checked = dryRun, onCheckedChange = { dryRun = it })
                         }
-                        Switch(checked = dryRun, onCheckedChange = { dryRun = it })
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Allow missing files", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Skip program/patch entries whose file isn't found instead of failing.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
+
+                        // 3. Option: Allow missing files
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Allow missing files", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Skip program/patch entries whose file isn't found instead of failing.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(checked = allowMissing, onCheckedChange = { allowMissing = it })
                         }
-                        Switch(checked = allowMissing, onCheckedChange = { allowMissing = it })
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Finalize provisioning", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "⚠️ Irreversible on the target device — qdl warns before starting. Only enable if you know what this does.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
+
+                        // 4. Option: Finalize provisioning
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Finalize provisioning", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "⚠️ Irreversible on the target device — qdl warns before starting. Only enable if you know what this does.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Switch(checked = finalizeProvisioning, onCheckedChange = { finalizeProvisioning = it })
                         }
-                        Switch(checked = finalizeProvisioning, onCheckedChange = { finalizeProvisioning = it })
-                    }
+                        
+                        // 5. Option: Debug output (Dengan Warning)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Enable debug log", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "⚠️ Saves huge raw log to app cache folder (qdl_debug.log). Will only show filtered logs to prevent crashes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    // Gunakan warna error (merah) agar user lebih waspada
+                                    color = MaterialTheme.colorScheme.error 
+                                )
+                            }
+                            Switch(checked = debugLog, onCheckedChange = { debugLog = it })
+                        }
+                    } // Tutup Column
+                } // Tutup OutlinedCard
+            } // Tutup item
+
+
+            // --- TEMPEL TOMBOL DI SINI ---
+            item {
+                Button(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    onClick = { folderPicker.launch(null) }
+                ) {
+                    Text("Auto-Load Firmware Folder")
                 }
             }
+            // -----------------------------
 
             item {
                 FilledTonalButton(modifier = Modifier.fillMaxWidth(), onClick = { loaderPicker.launch(arrayOf("*/*")) }) {
@@ -224,7 +318,8 @@ fun QdlFlashScreen(
                     onClick = {
                         scope.launch {
                             running = true
-                            output = listOf()
+// GANTI JADI INI:
+output.clear()
                             val executor = executorProvider.detect()
                             val ops = FlashOperations(context, executor, logRepository)
 
@@ -235,7 +330,8 @@ fun QdlFlashScreen(
                             // Skipped for dry runs: the whole point of dry-run is testing
                             // the loader/XML set without a device connected.
                             if (!dryRun && ops.checkEdlDevice().isEmpty()) {
-                                output = output + "[error] No EDL (9008) device detected — connect the device in EDL mode before starting QDL flash."
+// GANTI JADI INI (Gunakan .add):
+output.add("[error] No EDL (9008) device detected — connect the device in EDL mode before starting QDL flash.")
                                 running = false
                                 snackbarHostState.currentSnackbarData?.dismiss()
                                 snackbarHostState.showSnackbar("QDL Flash — no EDL device connected")
@@ -245,16 +341,29 @@ fun QdlFlashScreen(
                             val loaderPath = SafFiles.copyToCache(context, loaderUri!!, "loader")
                             val patchPath = SafFiles.copyToCache(context, patchUri!!, "patch.xml")
 
+                            // --- TAMBAHKAN KODE INI AGAR QDL TAHU LOKASI FILE .IMG ASLINYA ---
+                            val decodedUri = Uri.decode(rawprogramUri.toString())
+                            val includeDir = if (decodedUri.contains("primary:")) {
+                                // UBAH BARIS DI BAWAH INI:
+                                val cleanPath = decodedUri.substringAfterLast("primary:").substringBeforeLast("/")
+                                "/storage/emulated/0/$cleanPath"
+                            } else null
+                            // -----------------------------------------------------------------
+
                             ops.runQdl(
                                 loaderPath = loaderPath,
                                 rawprogramPaths = listOf(rawprogramLocalPath!!),
                                 patchPaths = listOf(patchPath),
                                 selectedLabels = if (partitions.isEmpty()) null else selected,
                                 storage = storage,
+                                includeFolder = includeDir, // <--- JANGAN LUPA MASUKKAN KE SINI
                                 dryRun = dryRun,
                                 allowMissing = allowMissing,
-                                finalizeProvisioning = finalizeProvisioning
-                            ).collect { line -> output = output + line }
+                                finalizeProvisioning = finalizeProvisioning,
+                                debugLog = debugLog
+// GANTI JADI INI:
+).collect { line -> output.add(line) }
+                            
                             running = false
                             val hadError = output.any { it.contains("[error]", ignoreCase = true) }
                             snackbarHostState.currentSnackbarData?.dismiss()

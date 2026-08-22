@@ -57,7 +57,8 @@ class FlashOperations(
         includeFolder: String? = null,
         dryRun: Boolean = false,
         allowMissing: Boolean = false,
-        finalizeProvisioning: Boolean = false
+        finalizeProvisioning: Boolean = false,
+        debugLog: Boolean = false // <--- TAMBAHAN PARAMETER BARU
     ): Flow<String> = flow {
         val qdl = BinaryManager.qdlPath(context)
         if (qdl == null) {
@@ -71,9 +72,11 @@ class FlashOperations(
                 val src = File(path)
                 val all = RawProgramXml.parsePartitions(src).map { it.label }.toSet()
                 if (selectedLabels == all) {
-                    path // nothing deselected — flash the original file as-is
+                    path // nothing deselected
                 } else {
-                    val filtered = File(context.cacheDir, "qdl_inputs/rawprogram_filtered_$i.xml")
+                    // PERBAIKAN: Gunakan externalCacheDir agar bisa dibaca oleh Shizuku/Root
+                    val safeCacheDir = context.externalCacheDir ?: context.cacheDir
+                    val filtered = File(safeCacheDir, "qdl_inputs/rawprogram_filtered_$i.xml")
                     filtered.parentFile?.mkdirs()
                     RawProgramXml.writeFiltered(src, selectedLabels, filtered)
                     log.info(TAG, "Filtered rawprogram to ${selectedLabels.size}/${all.size} selected partitions")
@@ -86,10 +89,10 @@ class FlashOperations(
 
         val args = buildList {
             add(qdl)
-            add("--debug")
             if (dryRun) add("--dry-run")
             if (allowMissing) add("--allow-missing")
             if (finalizeProvisioning) add("--finalize-provisioning")
+            if (debugLog) add("--debug") // <--- Aktifkan jika toggle nyala
             add("--storage")
             add(storage)
             if (includeFolder != null) {
@@ -101,7 +104,27 @@ class FlashOperations(
             patchPaths.forEach { add(it) }
         }.joinToString(" ") { "'$it'" }
 
-        val command = withQdlLdLibraryPath(args)
+        var command = withQdlLdLibraryPath(args)
+        
+        // --- TRIK ANTI CRASH & REAL-TIME LOG ---
+        // awk akan memfilter baris, mencegah spam jika barisnya sama persis dengan sebelumnya ($0 != p),
+        // dan yang paling penting: MEMAKSA Android mengirim log ke UI detik itu juga (fflush).
+        val awkFilter = "awk 'tolower(\$0) ~ /flashed|error|warn|fail|waiting|bootable|applied/ { if (\$0 != p) { print \$0; fflush(); p=\$0 } }'"
+
+        val pipeline = if (debugLog) {
+            // Jika debug aktif: Simpan FULL log mentah ke file fisik, tapi UI tetap aman dan real-time
+            val safeCacheDir = context.externalCacheDir ?: context.cacheDir
+            val debugFile = File(safeCacheDir, "qdl_debug.log").absolutePath
+            log.info(TAG, "Debug log is enabled. Full raw log will be saved to: $debugFile")
+            
+            "tee '$debugFile' | $awkFilter"
+        } else {
+            // Normal mode
+            awkFilter
+        }
+        
+        command = "$command 2>&1 | $pipeline"
+        
         log.info(TAG, "Starting QDL flash: $args")
         if (dryRun) {
             log.warn(TAG, "Dry-run mode: qdl will simulate this flash without writing to the target's storage.")
@@ -161,13 +184,12 @@ class FlashOperations(
             )
         }
         if (BinaryManager.isLoadProgrammerError(line)) {
+            // PERBAIKAN: Beri petunjuk masalah permission dan masalah device EDL
             log.error(
                 TAG,
-                "qdl reported \"unable to load programmer\" — on this device's ABI build of qdl, this message " +
-                    "almost always means no 9008/EDL device was claimed over USB (misleading wording, not a " +
-                    "missing/corrupt loader file). Check: (1) device is actually in EDL/9008 mode and shows up " +
-                    "in the EDL device check, (2) the app has USB host permission for it, (3) only if the device " +
-                    "IS connected and this still happens, then re-check the loader path/permissions."
+                "qdl reported \"unable to load programmer\". Ini biasanya berarti satu dari dua hal: " +
+                    "(1) qdl gagal membaca file loader karena masalah permission (jika pakai Shizuku, pastikan file ada di externalCacheDir), ATAU " +
+                    "(2) Jika bukan dry-run, koneksi ke device EDL 9008 terputus atau gagal diinisialisasi."
             )
         }
     }

@@ -123,3 +123,16 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+// Script bypass untuk mengatasi bug folder desugar di on-device build
+afterEvaluate {
+    tasks.named("mergeExtDexDebug") {
+        doFirst {
+            val desugarDir = File(layout.buildDirectory.get().asFile, "intermediates/external_file_lib_dex_archives/debug/desugarDebugFileDependencies")
+            if (!desugarDir.exists()) {
+                desugarDir.mkdirs()
+                println("=> Bypass: Folder desugar otomatis dibuat!")
+            }
+        }
+    }
+}
