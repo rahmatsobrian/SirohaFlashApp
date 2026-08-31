@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+app/build/
+build/
+
+# Keep the debug keystore committed on purpose — CI needs it and it is not
+# a production signing credential. Do NOT add a real release keystore here;
+# keep that outside the repo (or as an encrypted secret) instead.
+!app/debug.keystore
