@@ -686,8 +686,8 @@ fun SettingsScreen(
 
                         if (backgroundStyle == BackgroundStyle.CUSTOM) {
                             SwitchRow(
-                                title = "Latar Belakang Video",
-                                subtitle = "Gunakan video sebagai latar belakang",
+                                title = "Video Background",
+                                subtitle = "Use video as background",
                                 icon = Icons.Filled.Videocam,
                                 checked = backgroundVideoEnabled,
                                 onCheckedChange = { scope.launch { themePreferences.setBackgroundVideoEnabled(it) } }
@@ -705,7 +705,7 @@ fun SettingsScreen(
                                     ) {
                                         Icon(Icons.Filled.Videocam, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                         Text(
-                                            if (backgroundVideoPath == null) "Pilih video latar belakang" else "Ganti video latar belakang",
+                                            if (backgroundVideoPath == null) "Select background video" else "Change background video",
                                             style = MaterialTheme.typography.bodyLarge,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -713,8 +713,8 @@ fun SettingsScreen(
                                 }
                                 if (backgroundVideoPath != null) {
                                     SwitchRow(
-                                        title = "Suara Video",
-                                        subtitle = "Putar audio asli video, bukan bisu",
+                                        title = "Video Sound",
+                                        subtitle = "Play the original audio of the video",
                                         icon = if (backgroundVideoSoundEnabled) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
                                         checked = backgroundVideoSoundEnabled,
                                         onCheckedChange = { scope.launch { themePreferences.setBackgroundVideoSoundEnabled(it) } }
@@ -736,8 +736,8 @@ fun SettingsScreen(
                     )
 
                     SwitchRow(
-                        title = "Indikator Tombol",
-                        subtitle = "Tampilkan ikon status pada tombol saklar",
+                        title = "Button Indicator",
+                        subtitle = "Show status icon on toggle button",
                         icon = Icons.Filled.CheckCircle,
                         checked = buttonIndicatorEnabled,
                         onCheckedChange = { scope.launch { themePreferences.setButtonIndicatorEnabled(it) } }
