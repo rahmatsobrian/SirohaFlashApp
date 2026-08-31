@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme: a plain Material3 bridge theme. Actual colors,
+         including dynamic color, are applied in Compose (ui/theme/Theme.kt) —
+         this XML theme only controls the pre-Compose window background/splash
+         frame so there's no flash-of-unstyled-window on cold start. -->
+    <style name="Theme.SirohaFlashTool" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
