@@ -642,7 +642,7 @@ fun SettingsScreen(
                             ) {
                                 Icon(Icons.Filled.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Text(
-                                    if (customBackgroundPath == null) "Pilih wallpaper Kustom" else "Ganti wallpaper Kustom",
+                                    if (customBackgroundPath == null) "Select Custom background" else "Change Custom background",
                                     style = MaterialTheme.typography.bodyLarge,
                                     modifier = Modifier.weight(1f)
                                 )
