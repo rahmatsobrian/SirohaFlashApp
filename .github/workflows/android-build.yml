@@ -87,6 +87,43 @@ jobs:
           set -o pipefail
           ./gradlew assembleRelease --stacktrace 2>&1 | tee build-release.log
 
+      # UI-preview build: the normal release APK with lib/ (native binaries)
+      # and the bundled binary assets stripped out, then re-aligned and
+      # re-signed with the same debug keystore. It is a small download meant
+      # purely for looking at the UI - anything that depends on the bundled
+      # native binaries (qdl/EDL, bypass UBL files) will not work in it.
+      - name: Build UI-only release APK (no native libs / binaries)
+        id: uionly
+        run: |
+          set -euo pipefail
+          SRC=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          OUT=app/build/outputs/apk/release-ui-only
+          mkdir -p "$OUT"
+          cp "$SRC" "$OUT/work.apk"
+
+          # Remove the old signature (it would be invalid after editing), the
+          # native libraries, and the bundled binary assets. Patterns that
+          # match nothing are only a warning for zip, not an error.
+          zip -d "$OUT/work.apk" 'META-INF/*' 'lib/*' 'assets/bypass-ubl/*' || true
+          if unzip -l "$OUT/work.apk" | grep -q ' lib/'; then
+            echo "lib/ is still in the APK - stripping failed" >&2
+            exit 1
+          fi
+
+          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -n 1)
+          echo "Using build-tools: $BT"
+          "$BT/zipalign" -p -f 4 "$OUT/work.apk" "$OUT/aligned.apk"
+          "$BT/apksigner" sign \
+            --ks app/debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out "$OUT/siroha-release-ui-only.apk" \
+            "$OUT/aligned.apk"
+          "$BT/apksigner" verify "$OUT/siroha-release-ui-only.apk"
+          rm -f "$OUT/work.apk" "$OUT/aligned.apk" "$OUT"/*.idsig
+          ls -lh "$SRC" "$OUT/siroha-release-ui-only.apk"
+
       - name: Combine logs into one file
         if: always()
         run: |
@@ -122,6 +159,15 @@ jobs:
           retention-days: 14
           compression-level: 9
 
+      - name: Upload UI-only release APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-release-ui-only
+          path: app/build/outputs/apk/release-ui-only/*.apk
+          retention-days: 14
+          compression-level: 9
+
       - name: Print short summary to job log
         if: always()
         run: |
@@ -130,6 +176,7 @@ jobs:
           echo "- Gradle wrapper: ${{ steps.wrapper.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- assembleDebug: ${{ steps.assemble.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- assembleRelease: ${{ steps.release.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- UI-only release APK: ${{ steps.uionly.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Full plain-text log: download the **build-log** artifact above," >> "$GITHUB_STEP_SUMMARY"
           echo "open full-build-log.txt, and paste its contents back into the chat" >> "$GITHUB_STEP_SUMMARY"
