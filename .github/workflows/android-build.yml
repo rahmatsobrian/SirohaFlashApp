@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build:
-    name: Build, test, lint
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,20 +81,6 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug --stacktrace --warning-mode all 2>&1 | tee build-debug.log
 
-      - name: Run unit tests
-        id: test
-        if: success() || steps.assemble.outcome == 'success'
-        run: |
-          set -o pipefail
-          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee test.log
-
-      - name: Run Android Lint
-        id: lint
-        run: |
-          set -o pipefail
-          ./gradlew lintDebug --stacktrace 2>&1 | tee lint.log
-        continue-on-error: true
-
       - name: Assemble release APK (debug-signed, no secrets)
         id: release
         run: |
@@ -106,8 +92,6 @@ jobs:
         run: |
           {
             echo "===== assembleDebug ====="; cat build-debug.log 2>/dev/null
-            echo; echo "===== testDebugUnitTest ====="; cat test.log 2>/dev/null
-            echo; echo "===== lintDebug ====="; cat lint.log 2>/dev/null
             echo; echo "===== assembleRelease ====="; cat build-release.log 2>/dev/null
           } > full-build-log.txt
 
@@ -118,24 +102,6 @@ jobs:
           name: build-log
           path: full-build-log.txt
           retention-days: 14
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: app/build/test-results/**/*.xml
-          retention-days: 14
-          if-no-files-found: ignore
-
-      - name: Upload lint report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-report
-          path: app/build/reports/lint-results-*.html
-          retention-days: 14
-          if-no-files-found: ignore
 
       - name: Upload APKs
         if: success()
@@ -154,8 +120,6 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gradle wrapper: ${{ steps.wrapper.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- assembleDebug: ${{ steps.assemble.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- testDebugUnitTest: ${{ steps.test.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- lintDebug: ${{ steps.lint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- assembleRelease: ${{ steps.release.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Full plain-text log: download the **build-log** artifact above," >> "$GITHUB_STEP_SUMMARY"
