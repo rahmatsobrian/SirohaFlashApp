@@ -15,7 +15,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -76,7 +85,26 @@ private val ActiveGreen = androidx.compose.ui.graphics.Color(0xFF84d996)
 
 
 /** label shown in the list + actual partition name passed to fastboot. */
-private data class FlashablePartition(val label: String, val partition: String)
+private data class FlashablePartition(
+    val label: String,
+    val partition: String,
+    /** Logical (dynamic) partitions can normally only be flashed from FastbootD. */
+    val logical: Boolean = false,
+    /** Firmware / critical partitions: ask for confirmation before picking an image. */
+    val risky: Boolean = false
+)
+
+/** A confirmation popup waiting for the person's answer. */
+private class PendingConfirm(
+    val title: String,
+    val message: String,
+    val confirmLabel: String,
+    val onConfirm: () -> Unit
+)
+
+private enum class PartitionDialog { FLASH_CUSTOM, ERASE_CUSTOM, CREATE_LP, RESIZE_LP, DELETE_LP }
+
+private fun textOk(result: String) = !result.contains("FAILED") && !result.contains("ERROR")
 
 private val flashablePartitions = listOf(
     FlashablePartition("Recovery", "recovery"),
@@ -86,14 +114,51 @@ private val flashablePartitions = listOf(
     FlashablePartition("vbmeta", "vbmeta"),
 )
 
-private data class RebootOption(val label: String, val target: FastbootRebootTarget)
+private val moreFlashablePartitions = listOf(
+    FlashablePartition("dtbo", "dtbo"),
+    FlashablePartition("vbmeta_system", "vbmeta_system"),
+    FlashablePartition("vbmeta_vendor", "vbmeta_vendor"),
+    FlashablePartition("system", "system", logical = true),
+    FlashablePartition("system_ext", "system_ext", logical = true),
+    FlashablePartition("vendor", "vendor", logical = true),
+    FlashablePartition("product", "product", logical = true),
+    FlashablePartition("odm", "odm", logical = true),
+    FlashablePartition("super", "super", risky = true),
+    FlashablePartition("modem", "modem", risky = true),
+    FlashablePartition("bootloader", "bootloader", risky = true),
+)
+
+private data class RebootOption(
+    val label: String,
+    val target: FastbootRebootTarget,
+    val feedback: String = "Reboot to $label"
+)
 
 private val rebootOptions = listOf(
     RebootOption("Bootloader", FastbootRebootTarget.BOOTLOADER),
     RebootOption("Recovery", FastbootRebootTarget.RECOVERY),
     RebootOption("System", FastbootRebootTarget.SYSTEM),
     RebootOption("FastbootD", FastbootRebootTarget.FASTBOOTD),
+    RebootOption("Continue boot", FastbootRebootTarget.CONTINUE, feedback = "Continue boot"),
+    RebootOption("Power off", FastbootRebootTarget.POWEROFF, feedback = "Power off"),
 )
+
+/** Monospace result box shared by the new sections; red when the text reports a failure. */
+@Composable
+private fun ResultCard(text: String) {
+    if (text.isBlank()) return
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        SelectionContainer {
+            Text(
+                text,
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = if (textOk(text)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
 
 @Composable
 fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRepository, onOpenAdb: () -> Unit, onBack: () -> Unit) {
@@ -122,6 +187,11 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     var manualResult by rememberSaveable { mutableStateOf("") }
     var ublStatusResult by rememberSaveable { mutableStateOf("") }
     var pendingFlash by remember { mutableStateOf<FlashablePartition?>(null) }
+    var deviceInfoResult by rememberSaveable { mutableStateOf("") }
+    var lockResult by rememberSaveable { mutableStateOf("") }
+    var dynamicResult by rememberSaveable { mutableStateOf("") }
+    var confirmAction by remember { mutableStateOf<PendingConfirm?>(null) }
+    var partitionDialog by remember { mutableStateOf<PartitionDialog?>(null) }
     val entries by logRepository.entries.collectAsState()
 
     // Keeps this screen's status in sync with what Home already saw. Home
@@ -179,7 +249,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         if (uri == null || target == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Flash ${target.label}", { busy = it }) {
             val path = SafFiles.copyToCache(context, uri, "${target.partition}.img")
-            ops.flashPartition(target.partition, File(path))
+            ops.flashPartitionChecked(target.partition, File(path))
         }
     }
 
@@ -191,6 +261,80 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         }
     }
 
+    fun startFlash(p: FlashablePartition) {
+        pendingFlash = p
+        flashPicker.launch(arrayOf("*/*"))
+    }
+
+    confirmAction?.let { c ->
+        ConfirmActionDialog(
+            title = c.title,
+            message = c.message,
+            confirmLabel = c.confirmLabel,
+            onConfirm = { confirmAction = null; c.onConfirm() },
+            onDismiss = { confirmAction = null }
+        )
+    }
+
+    partitionDialog?.let { kind ->
+        val needsSize = kind == PartitionDialog.CREATE_LP || kind == PartitionDialog.RESIZE_LP
+        PartitionInputDialog(
+            title = when (kind) {
+                PartitionDialog.FLASH_CUSTOM -> "Flash custom partition"
+                PartitionDialog.ERASE_CUSTOM -> "Erase custom partition"
+                PartitionDialog.CREATE_LP -> "Create logical partition"
+                PartitionDialog.RESIZE_LP -> "Resize logical partition"
+                PartitionDialog.DELETE_LP -> "Delete logical partition"
+            },
+            description = when (kind) {
+                PartitionDialog.FLASH_CUSTOM -> "Enter the exact partition name, including the slot suffix on A/B devices (e.g. boot_a). You'll pick the image next."
+                PartitionDialog.ERASE_CUSTOM -> "Enter the exact partition name to erase. You'll be asked to confirm."
+                PartitionDialog.CREATE_LP -> "Needs FastbootD. Enter the new partition's name and size in bytes."
+                PartitionDialog.RESIZE_LP -> "Needs FastbootD. Enter the partition name and its new size in bytes."
+                PartitionDialog.DELETE_LP -> "Needs FastbootD. Enter the logical partition to delete. You'll be asked to confirm."
+            },
+            confirmLabel = when (kind) {
+                PartitionDialog.FLASH_CUSTOM -> "Choose image"
+                PartitionDialog.ERASE_CUSTOM, PartitionDialog.DELETE_LP -> "Continue"
+                PartitionDialog.CREATE_LP -> "Create"
+                PartitionDialog.RESIZE_LP -> "Resize"
+            },
+            showSize = needsSize,
+            onConfirm = { name, size ->
+                partitionDialog = null
+                when (kind) {
+                    PartitionDialog.FLASH_CUSTOM -> {
+                        startFlash(FlashablePartition(name, name))
+                    }
+                    PartitionDialog.ERASE_CUSTOM -> {
+                        confirmAction = PendingConfirm(
+                            "Erase $name?", "This permanently erases the '$name' partition. It cannot be undone.", "Erase"
+                        ) {
+                            scope.launchWithFeedback(snackbarHostState, "Erase $name", { busy = it }) { ops.erase(name) }
+                        }
+                    }
+                    PartitionDialog.CREATE_LP -> {
+                        if (size != null) {
+                            scope.launchWithFeedback(snackbarHostState, "Create $name", { busy = it }) { ops.createLogicalPartition(name, size) }
+                        }
+                    }
+                    PartitionDialog.RESIZE_LP -> {
+                        if (size != null) {
+                            scope.launchWithFeedback(snackbarHostState, "Resize $name", { busy = it }) { ops.resizeLogicalPartition(name, size) }
+                        }
+                    }
+                    PartitionDialog.DELETE_LP -> {
+                        confirmAction = PendingConfirm(
+                            "Delete $name?", "Deleting a logical partition can leave the device unable to boot until it is flashed again.", "Delete"
+                        ) {
+                            scope.launchWithFeedback(snackbarHostState, "Delete $name", { busy = it }) { ops.deleteLogicalPartition(name) }
+                        }
+                    }
+                }
+            },
+            onDismiss = { partitionDialog = null }
+        )
+    }
 
     Scaffold(
         topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) },
@@ -268,6 +412,56 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
 
 
             item {
+                SectionHeading(Icons.Filled.Memory, "Device information", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Device summary",
+                            subtitle = "Product, bootloader, slot, mode, max download size...",
+                            icon = Icons.Filled.Memory,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Device summary",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { deviceInfoResult = it }
+                                ) { ops.deviceSummary() }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "All variables (getvar all)",
+                            icon = Icons.Filled.Info,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "getvar all",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { deviceInfoResult = it }
+                                ) { ops.rawCommandWithResponse("getvar all") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Partition list",
+                            subtitle = "Name, type, size and logical flag as reported by the bootloader",
+                            icon = Icons.Filled.Storage,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Partition list",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { deviceInfoResult = it }
+                                ) { ops.listPartitions() }
+                            }
+                        )
+                    )
+                )
+                ResultCard(deviceInfoResult)
+            }
+
+            item {
                 SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     listOf(
@@ -296,6 +490,255 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             }
 
             item {
+                SectionHeading(Icons.Filled.Bolt, "Flash more partitions", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    moreFlashablePartitions.map { p ->
+                        ActionEntry(
+                            title = "Flash ${p.label}",
+                            subtitle = when {
+                                p.risky -> "Firmware/critical - asks for confirmation"
+                                p.logical -> "Logical partition - needs FastbootD"
+                                else -> null
+                            },
+                            icon = if (p.risky) Icons.Filled.Warning else Icons.Filled.Bolt,
+                            enabled = !busy,
+                            onClick = {
+                                if (p.risky) {
+                                    confirmAction = PendingConfirm(
+                                        "Flash ${p.label}?",
+                                        "Flashing '${p.label}' with an image that doesn't match this exact device can leave it unable to boot. Only continue if you're sure the image is correct.",
+                                        "Choose image"
+                                    ) { startFlash(p) }
+                                } else {
+                                    startFlash(p)
+                                }
+                            }
+                        )
+                    } + ActionEntry(
+                        title = "Flash custom partition...",
+                        subtitle = "Type any partition name, e.g. boot_a",
+                        icon = Icons.Filled.Bolt,
+                        enabled = !busy,
+                        onClick = { partitionDialog = PartitionDialog.FLASH_CUSTOM }
+                    )
+                )
+                Text(
+                    "Images larger than the device's max download size are refused up front - automatic sparse splitting isn't supported yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.DeleteSweep, "Erase & wipe", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Erase cache",
+                            icon = Icons.Filled.DeleteSweep,
+                            enabled = !busy,
+                            onClick = { scope.launchWithFeedback(snackbarHostState, "Erase cache", { busy = it }) { ops.erase("cache") } }
+                        ),
+                        ActionEntry(
+                            title = "Erase metadata",
+                            subtitle = "Encryption metadata - data becomes unreadable",
+                            icon = Icons.Filled.Warning,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Erase metadata?",
+                                    "This removes the encryption metadata. Any existing user data becomes unreadable.",
+                                    "Erase"
+                                ) { scope.launchWithFeedback(snackbarHostState, "Erase metadata", { busy = it }) { ops.erase("metadata") } }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Erase userdata",
+                            subtitle = "Deletes ALL personal data",
+                            icon = Icons.Filled.Warning,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Erase userdata?",
+                                    "All apps, photos and settings on the device will be permanently deleted.",
+                                    "Erase"
+                                ) { scope.launchWithFeedback(snackbarHostState, "Erase userdata", { busy = it }) { ops.erase("userdata") } }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Wipe data (like fastboot -w)",
+                            subtitle = "userdata + cache + metadata",
+                            icon = Icons.Filled.Warning,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Wipe all data?",
+                                    "Erases userdata, then cache and metadata. All personal data will be permanently deleted.",
+                                    "Wipe"
+                                ) { scope.launchWithFeedback(snackbarHostState, "Wipe data", { busy = it }) { ops.wipeUserData() } }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Erase custom partition...",
+                            icon = Icons.Filled.DeleteSweep,
+                            enabled = !busy,
+                            onClick = { partitionDialog = PartitionDialog.ERASE_CUSTOM }
+                        )
+                    )
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.LockOpen, "Bootloader lock", modifier = Modifier.padding(start = 4.dp))
+                fun runFlashing(sub: String, label: String) {
+                    scope.launchWithTextFeedback(
+                        snackbarHostState, label,
+                        isSuccess = { textOk(it) },
+                        setBusy = { busy = it },
+                        onResult = { lockResult = it }
+                    ) { ops.rawCommandWithResponse("flashing $sub") }
+                }
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Check unlock ability",
+                            subtitle = "flashing get_unlock_ability",
+                            icon = Icons.Filled.Info,
+                            enabled = !busy,
+                            onClick = { runFlashing("get_unlock_ability", "Check unlock ability") }
+                        ),
+                        ActionEntry(
+                            title = "Unlock bootloader",
+                            subtitle = "Wipes data - confirm on the device screen",
+                            icon = Icons.Filled.LockOpen,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Unlock bootloader?",
+                                    "Unlocking erases all data and may void the warranty. Some devices (e.g. Xiaomi) also need an approved unlock - use Mi Unlock for those. You may need to confirm on the device.",
+                                    "Unlock"
+                                ) { runFlashing("unlock", "Unlock bootloader") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Lock bootloader",
+                            subtitle = "Only with a fully stock, matching ROM",
+                            icon = Icons.Filled.Lock,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Lock bootloader?",
+                                    "Locking with a modified or mismatched ROM can leave the device unable to boot, and wipes data. Only continue with a stock ROM that matches the device.",
+                                    "Lock"
+                                ) { runFlashing("lock", "Lock bootloader") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Unlock critical partitions",
+                            icon = Icons.Filled.LockOpen,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Unlock critical partitions?",
+                                    "This allows flashing bootloader-level partitions and may wipe data.",
+                                    "Unlock"
+                                ) { runFlashing("unlock_critical", "Unlock critical") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Lock critical partitions",
+                            icon = Icons.Filled.Lock,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Lock critical partitions?",
+                                    "Only continue if the device is running matching stock firmware.",
+                                    "Lock"
+                                ) { runFlashing("lock_critical", "Lock critical") }
+                            }
+                        )
+                    )
+                )
+                ResultCard(lockResult)
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Layers, "Dynamic partitions (FastbootD)", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Check mode (is-userspace)",
+                            subtitle = "yes = FastbootD, no = bootloader fastboot",
+                            icon = Icons.Filled.Info,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Check mode",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { dynamicResult = it }
+                                ) { ops.rawCommandWithResponse("getvar is-userspace") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Create logical partition...",
+                            icon = Icons.Filled.Layers,
+                            enabled = !busy,
+                            onClick = { partitionDialog = PartitionDialog.CREATE_LP }
+                        ),
+                        ActionEntry(
+                            title = "Resize logical partition...",
+                            icon = Icons.Filled.Layers,
+                            enabled = !busy,
+                            onClick = { partitionDialog = PartitionDialog.RESIZE_LP }
+                        ),
+                        ActionEntry(
+                            title = "Delete logical partition...",
+                            icon = Icons.Filled.Warning,
+                            enabled = !busy,
+                            onClick = { partitionDialog = PartitionDialog.DELETE_LP }
+                        ),
+                        ActionEntry(
+                            title = "Snapshot update: merge",
+                            subtitle = "Finish a pending virtual A/B merge",
+                            icon = Icons.Filled.Layers,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Snapshot merge",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { dynamicResult = it }
+                                ) { ops.rawCommandWithResponse("snapshot-update merge") }
+                            }
+                        ),
+                        ActionEntry(
+                            title = "Snapshot update: cancel",
+                            subtitle = "Can leave the device unable to boot",
+                            icon = Icons.Filled.Warning,
+                            enabled = !busy,
+                            onClick = {
+                                confirmAction = PendingConfirm(
+                                    "Cancel snapshot update?",
+                                    "Cancelling a pending virtual A/B update can leave the system unable to boot.",
+                                    "Cancel update"
+                                ) {
+                                    scope.launchWithTextFeedback(
+                                        snackbarHostState, "Snapshot cancel",
+                                        isSuccess = { textOk(it) },
+                                        setBusy = { busy = it },
+                                        onResult = { dynamicResult = it }
+                                    ) { ops.rawCommandWithResponse("snapshot-update cancel") }
+                                }
+                            }
+                        )
+                    )
+                )
+                ResultCard(dynamicResult)
+            }
+
+            item {
                 SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     rebootOptions.map { opt ->
@@ -304,7 +747,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                             icon = Icons.Filled.RestartAlt,
                             enabled = !busy,
                             onClick = {
-                                scope.launchWithFeedback(snackbarHostState, "Reboot to ${opt.label}", { busy = it }) {
+                                scope.launchWithFeedback(snackbarHostState, opt.feedback, { busy = it }) {
                                     ops.reboot(opt.target).also { connected = false }
                                 }
                             }
@@ -433,6 +876,11 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         }
                     }
                 }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.MenuBook, "Command handbook", modifier = Modifier.padding(start = 4.dp))
+                FastbootCommandLibrary(onPick = { manualCommand = it })
             }
 
             item {

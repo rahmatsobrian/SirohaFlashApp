@@ -11,7 +11,13 @@ import java.io.File
 
 /** Reboot targets exposed by the fastboot protocol / flash.sh's reboot menu. */
 enum class FastbootRebootTarget {
-    BOOTLOADER, RECOVERY, SYSTEM, FASTBOOTD
+    BOOTLOADER, RECOVERY, SYSTEM, FASTBOOTD,
+
+    /** `continue` — resume the normal boot process from the bootloader. */
+    CONTINUE,
+
+    /** `powerdown` — power the device off (not every bootloader implements it). */
+    POWEROFF
 }
 
 /**
@@ -294,10 +300,160 @@ class FastbootOperations(
             FastbootRebootTarget.RECOVERY -> "reboot-recovery"
             FastbootRebootTarget.SYSTEM -> "reboot"
             FastbootRebootTarget.FASTBOOTD -> "reboot-fastboot"
+            FastbootRebootTarget.CONTINUE -> "continue"
+            FastbootRebootTarget.POWEROFF -> "powerdown"
         }
         val ok = handleResult(c.command(cmd, onInfo = { logInfoLine(it) }), "reboot ${target.name}")
         if (ok) disconnect() // device is gone until it re-enumerates
         ok
+    }
+
+    // ------------------------------------------------------------------
+    // Device info / partition table
+    // ------------------------------------------------------------------
+
+    /** Silent single-variable query (no error logging) — used where "unsupported" is a normal answer. */
+    private fun queryVar(c: FastbootUsbClient, name: String): String? =
+        (c.command("getvar:$name") as? FastbootUsbClient.FastbootResponse.Okay)
+            ?.message?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Reads the handful of bootloader variables people actually look at and
+     * formats them as a readable block. Variables the bootloader doesn't
+     * report are shown as "(not reported)" instead of failing the whole call.
+     */
+    suspend fun deviceSummary(): String = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext "ERROR: Not connected — tap Connect first." }
+        val vars = listOf(
+            "product" to "Product",
+            "variant" to "Variant",
+            "serialno" to "Serial",
+            "version-bootloader" to "Bootloader version",
+            "version-baseband" to "Baseband version",
+            "version" to "Protocol version",
+            "unlocked" to "Unlocked",
+            "secure" to "Secure",
+            "is-userspace" to "Mode",
+            "current-slot" to "Current slot",
+            "slot-count" to "Slot count",
+            "max-download-size" to "Max download size",
+            "super-partition-name" to "Super partition",
+            "snapshot-update-status" to "Snapshot update status"
+        )
+        log.info(TAG, "Reading device summary (${vars.size} variables)...")
+        val text = vars.joinToString("\n") { (key, label) ->
+            val raw = queryVar(c, key)
+            val shown = when {
+                raw == null -> "(not reported)"
+                key == "is-userspace" -> if (raw.equals("yes", true)) "FastbootD (userspace)" else "Bootloader fastboot"
+                key == "max-download-size" -> parseHexSize(raw)?.let { "$raw  (${formatBytes(it)})" } ?: raw
+                else -> raw
+            }
+            "$label: $shown"
+        }
+        log.success(TAG, "Device summary read")
+        text
+    }
+
+    /**
+     * Runs `getvar all` and turns the partition-size / partition-type /
+     * is-logical lines into one row per partition. Only what the bootloader
+     * itself reports is shown — nothing is guessed.
+     */
+    suspend fun listPartitions(): String = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext "ERROR: Not connected — tap Connect first." }
+        val lines = mutableListOf<String>()
+        val result = c.command("getvar:all") { lines += it }
+        if (result is FastbootUsbClient.FastbootResponse.Fail) {
+            log.error(TAG, "getvar all failed: ${result.message}")
+            return@withContext "FAILED (${result.message})"
+        }
+        if (result is FastbootUsbClient.FastbootResponse.Error) {
+            log.error(TAG, "getvar all error: ${result.reason}")
+            return@withContext "ERROR (${result.reason})"
+        }
+
+        val pattern = Regex("^(partition-size|partition-type|is-logical|has-slot):([^:]+):\\s*(.*)$")
+        val sizes = sortedMapOf<String, String>()
+        val types = mutableMapOf<String, String>()
+        val logical = mutableMapOf<String, String>()
+        for (raw in lines) {
+            val m = pattern.find(raw.trim()) ?: continue
+            val (key, name, value) = m.destructured
+            when (key) {
+                "partition-size" -> sizes[name] = value.trim()
+                "partition-type" -> types[name] = value.trim()
+                "is-logical" -> logical[name] = value.trim()
+            }
+        }
+        val names = (sizes.keys + types.keys + logical.keys).toSortedSet()
+        if (names.isEmpty()) {
+            log.warn(TAG, "getvar all returned ${lines.size} lines but no partition-* entries")
+            return@withContext "No partition info reported by this bootloader (${lines.size} variables returned).\n" +
+                "Try the manual command: getvar partition-size:boot"
+        }
+        log.success(TAG, "Listed ${names.size} partitions")
+        val header = "%-22s %-8s %-12s %s".format("PARTITION", "TYPE", "SIZE", "LOGICAL")
+        val rows = names.map { n ->
+            val size = sizes[n]?.let { parseHexSize(it)?.let { bytes -> formatBytes(bytes) } ?: it } ?: "-"
+            "%-22s %-8s %-12s %s".format(n, types[n] ?: "-", size, if (logical[n].equals("yes", true)) "yes" else "")
+        }
+        (listOf(header) + rows).joinToString("\n") + "\n\n${names.size} partitions"
+    }
+
+    /** max-download-size as bytes, or null if the bootloader doesn't report it. */
+    suspend fun getMaxDownloadSize(): Long? = withContext(Dispatchers.IO) {
+        val c = client ?: return@withContext null
+        queryVar(c, "max-download-size")?.let { parseHexSize(it) }
+    }
+
+    /** Fastboot reports sizes as hex, usually "0x"-prefixed. */
+    private fun parseHexSize(raw: String): Long? {
+        val v = raw.trim()
+        return if (v.startsWith("0x", ignoreCase = true)) v.substring(2).toLongOrNull(16) else v.toLongOrNull(16)
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1L shl 30 -> "%.2f GiB".format(bytes / (1L shl 30).toDouble())
+        bytes >= 1L shl 20 -> "%.1f MiB".format(bytes / (1L shl 20).toDouble())
+        bytes >= 1L shl 10 -> "%.1f KiB".format(bytes / (1L shl 10).toDouble())
+        else -> "$bytes B"
+    }
+
+    /**
+     * Same as [flashPartition], but first compares the file against the
+     * device's max-download-size and stops early with a clear message
+     * instead of letting the bootloader reject it halfway. The desktop
+     * `fastboot` tool silently splits big images into sparse chunks; this
+     * app does not do that yet, so oversized images have to be pre-split.
+     */
+    suspend fun flashPartitionChecked(partition: String, file: File): Boolean {
+        val max = getMaxDownloadSize()
+        if (max != null && max > 0 && file.length() > max) {
+            log.error(
+                TAG,
+                "${file.name} is ${formatBytes(file.length())} but this device accepts at most ${formatBytes(max)} per download. " +
+                    "Use a sparse/split image — automatic splitting isn't supported in this app yet."
+            )
+            return false
+        }
+        return flashPartition(partition, file)
+    }
+
+    /**
+     * Equivalent of `fastboot -w`: erases userdata, then cache and metadata.
+     * Only userdata has to succeed — many devices have no cache partition,
+     * and a missing one just FAILs harmlessly.
+     */
+    suspend fun wipeUserData(): Boolean = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        log.warn(TAG, "Wiping user data (userdata, cache, metadata)...")
+        val userdata = handleResult(c.command("erase:userdata", onInfo = { logInfoLine(it) }), "erase userdata")
+        if (!userdata) return@withContext false
+        for (extra in listOf("cache", "metadata")) {
+            handleResult(c.command("erase:$extra", onInfo = { logInfoLine(it) }), "erase $extra")
+        }
+        true
     }
 
     private fun handleResult(result: FastbootUsbClient.FastbootResponse, what: String): Boolean =
@@ -355,6 +511,8 @@ class FastbootOperations(
             "delete-logical-partition" -> "delete-logical-partition:${rest.joinToString(" ")}"
             "create-logical-partition" -> "create-logical-partition:${rest.joinToString(":")}"
             "resize-logical-partition" -> "resize-logical-partition:${rest.joinToString(":")}"
+            "snapshot-update" -> "snapshot-update:${rest.joinToString(" ")}"
+            "gsi" -> "gsi:${rest.joinToString(" ")}"
             // "oem ..." / "flashing ..." (unlock, lock, get_unlock_ability, ...) are
             // already space-separated on the wire — leave them exactly as typed.
             else -> trimmed
