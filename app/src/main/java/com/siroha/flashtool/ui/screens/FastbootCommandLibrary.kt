@@ -42,7 +42,7 @@ internal data class LibraryCategory(val title: String, val commands: List<Librar
  * sent until the person presses Send.
  *
  * Deliberately left out: host-side features of the PC tool that never go
- * over the wire (flashall, update, format, sparse splitting, fetch).
+ * over the wire (flashall, update, format, sparse splitting).
  * Not every device supports every command; unsupported ones just FAIL.
  */
 internal val fastbootCommandLibrary = listOf(
@@ -75,6 +75,19 @@ internal val fastbootCommandLibrary = listOf(
             LibraryCommand("reboot fastboot", "Reboot into FastbootD"),
             LibraryCommand("continue", "Continue the normal boot"),
             LibraryCommand("powerdown", "Power off (not every bootloader supports it)")
+        )
+    ),
+    LibraryCategory(
+        "Flash & boot (uses the attached file)", listOf(
+            LibraryCommand("flash boot", "Flash the attached file to boot"),
+            LibraryCommand("flash init_boot", "Flash the attached file to init_boot"),
+            LibraryCommand("flash vendor_boot", "Flash the attached file to vendor_boot"),
+            LibraryCommand("flash dtbo", "Flash the attached file to dtbo"),
+            LibraryCommand("flash recovery", "Flash the attached file to recovery"),
+            LibraryCommand("flash vbmeta", "Flash the attached file to vbmeta"),
+            LibraryCommand("flash splash", "Flash the attached file to splash (boot logo)"),
+            LibraryCommand("flash boot_a", "Flash to a specific slot - use the exact partition name", risky = true),
+            LibraryCommand("boot", "Temporarily boot the attached image (nothing is written)")
         )
     ),
     LibraryCategory(
@@ -129,7 +142,7 @@ internal fun FastbootCommandLibrary(onPick: (String) -> Unit) {
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            "Tap a command to put it in the manual command field above. Nothing is sent until you press Send. " +
+            "Tap a command to put it in the terminal. Nothing is sent until you press Send. " +
                 "Not every device supports every command.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant

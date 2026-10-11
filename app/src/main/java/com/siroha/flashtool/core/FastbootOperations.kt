@@ -440,9 +440,121 @@ class FastbootOperations(
         return flashPartition(partition, file)
     }
 
+    // ------------------------------------------------------------------
+    // Terminal with an attached file
+    // ------------------------------------------------------------------
+
+    /** True when [command] consumes the file attached in the terminal (`flash <partition>` / `boot`). */
+    fun commandNeedsFile(command: String): Boolean {
+        val parts = command.trim().split(Regex("\\s+"))
+        return when (parts[0].lowercase()) {
+            "flash" -> parts.size >= 2
+            "boot" -> parts.size == 1
+            else -> false
+        }
+    }
+
+    /**
+     * Terminal entry point. `flash <partition>` and `boot` use [file] (the
+     * attachment); everything else behaves exactly like [rawCommandWithResponse].
+     */
+    suspend fun rawCommandWithFile(command: String, file: File?): String {
+        val trimmed = command.trim()
+        if (!commandNeedsFile(trimmed)) return rawCommandWithResponse(trimmed)
+        val parts = trimmed.split(Regex("\\s+"))
+        if (file == null) {
+            return "ERROR: attach an image first (Attach file), then run: $trimmed"
+        }
+        return when (parts[0].lowercase()) {
+            "flash" -> {
+                if (parts.size != 2) return "ERROR: usage: flash <partition>   (the attached file is flashed)"
+                val ok = flashPartitionChecked(parts[1], file)
+                if (ok) "OKAY flashed ${parts[1]} from ${file.name} (${file.length()} bytes)"
+                else "FAILED flash ${parts[1]} - see Recent activity for the reason"
+            }
+            else -> {
+                val ok = boot(file)
+                if (ok) "OKAY booted ${file.name} (temporary boot, nothing was written)"
+                else "FAILED boot - see Recent activity for the reason"
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Partition backup (device -> file) via `fetch`
+    // ------------------------------------------------------------------
+
+    /**
+     * On A/B devices `boot` really lives at `boot_a` / `boot_b`; the PC tool
+     * appends the current slot for you, so do the same here. Names that
+     * already carry a slot suffix are left alone.
+     */
+    private fun resolveSlotName(c: FastbootUsbClient, name: String): String {
+        if (name.endsWith("_a") || name.endsWith("_b")) return name
+        val hasSlot = queryVar(c, "has-slot:$name")
+        if (!hasSlot.equals("yes", ignoreCase = true)) return name
+        val slot = queryVar(c, "current-slot") ?: return name
+        val resolved = "${name}_${slot.trim().removePrefix("_")}"
+        log.info(TAG, "$name is slotted - using $resolved (current slot)")
+        return resolved
+    }
+
+    /**
+     * Reads a partition off the device with the fastboot `fetch` command and
+     * streams it into [out]. Honors `max-fetch-size` by requesting the
+     * partition in ranges when the bootloader reports a limit.
+     *
+     * Not every bootloader implements `fetch` (it arrived with Android 11
+     * era fastboot) and many only allow it on unlocked devices or for
+     * certain partitions - when it's refused, the bootloader's own message
+     * is logged and false is returned.
+     */
+    suspend fun fetchPartition(
+        partition: String,
+        out: java.io.OutputStream,
+        onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
+    ): Boolean = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        val name = resolveSlotName(c, partition)
+        val size = queryVar(c, "partition-size:$name")?.let { parseHexSize(it) }
+        val maxFetch = queryVar(c, "max-fetch-size")?.let { parseHexSize(it) }
+        log.info(
+            TAG,
+            "Backing up $name" + (size?.let { " (${formatBytes(it)})" } ?: "") +
+                (maxFetch?.let { ", max fetch ${formatBytes(it)}" } ?: "") + "..."
+        )
+
+        val result: FastbootUsbClient.FastbootResponse =
+            if (size != null && maxFetch != null && maxFetch > 0 && size > maxFetch) {
+                var offset = 0L
+                var last: FastbootUsbClient.FastbootResponse = FastbootUsbClient.FastbootResponse.Okay("")
+                while (offset < size) {
+                    val chunk = minOf(maxFetch, size - offset)
+                    val base = offset
+                    last = c.fetch(
+                        command = "fetch:$name:0x%08x:0x%08x".format(offset, chunk),
+                        out = out,
+                        onInfo = { logInfoLine(it) },
+                        onProgress = { done, _ -> onProgress(base + done, size) }
+                    )
+                    if (last !is FastbootUsbClient.FastbootResponse.Okay) break
+                    offset += chunk
+                }
+                last
+            } else {
+                c.fetch(
+                    command = "fetch:$name",
+                    out = out,
+                    onInfo = { logInfoLine(it) },
+                    onProgress = onProgress
+                )
+            }
+        handleResult(result, "backup $name")
+    }
+
     /**
      * Equivalent of `fastboot -w`: erases userdata, then cache and metadata.
-     * Only userdata has to succeed — many devices have no cache partition,
+     * Only userdata has to succeed - many devices have no cache partition,
      * and a missing one just FAILs harmlessly.
      */
     suspend fun wipeUserData(): Boolean = withContext(Dispatchers.IO) {

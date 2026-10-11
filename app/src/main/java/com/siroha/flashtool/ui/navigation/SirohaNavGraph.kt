@@ -22,6 +22,7 @@ import com.siroha.flashtool.ui.components.SirohaBottomBar
 import com.siroha.flashtool.ui.screens.AboutScreen
 import com.siroha.flashtool.ui.screens.AbPartitionScreen
 import com.siroha.flashtool.ui.screens.AdbScreen
+import com.siroha.flashtool.ui.screens.BackupPartitionScreen
 import com.siroha.flashtool.ui.screens.BypassUblScreen
 import com.siroha.flashtool.ui.screens.FastbootScreen
 import com.siroha.flashtool.ui.screens.FrpToolScreen
@@ -51,6 +52,7 @@ object Routes {
     const val FASTBOOT = "fastboot"
     const val GSI_TOOL = "gsi_tool"
     const val AB_PARTITION = "ab_partition"
+    const val BACKUP_PARTITION = "backup_partition"
     const val FRP_TOOL = "frp_tool"
     const val ADB = "adb"
     const val USB_FIX = "usb_fix"
@@ -198,6 +200,13 @@ fun SirohaNavGraph(
                 fastbootOperations = fastbootOperations,
                 logRepository = logRepository,
                 onOpenAdb = { navController.navigate(Routes.ADB) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.BACKUP_PARTITION) {
+            BackupPartitionScreen(
+                fastbootOperations = fastbootOperations,
+                logRepository = logRepository,
                 onBack = { navController.popBackStack() }
             )
         }

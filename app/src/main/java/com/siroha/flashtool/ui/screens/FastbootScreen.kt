@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
@@ -73,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -91,7 +96,9 @@ private data class FlashablePartition(
     /** Logical (dynamic) partitions can normally only be flashed from FastbootD. */
     val logical: Boolean = false,
     /** Firmware / critical partitions: ask for confirmation before picking an image. */
-    val risky: Boolean = false
+    val risky: Boolean = false,
+    /** Optional hint shown under the row. */
+    val note: String? = null
 )
 
 /** A confirmation popup waiting for the person's answer. */
@@ -107,15 +114,17 @@ private enum class PartitionDialog { FLASH_CUSTOM, ERASE_CUSTOM, CREATE_LP, RESI
 private fun textOk(result: String) = !result.contains("FAILED") && !result.contains("ERROR")
 
 private val flashablePartitions = listOf(
-    FlashablePartition("Recovery", "recovery"),
     FlashablePartition("Boot", "boot"),
     FlashablePartition("init_boot", "init_boot"),
     FlashablePartition("vendor_boot", "vendor_boot"),
+    FlashablePartition("dtbo", "dtbo"),
+    FlashablePartition("Recovery", "recovery"),
     FlashablePartition("vbmeta", "vbmeta"),
+    FlashablePartition("splash", "splash", note = "Boot logo - some devices name it \"logo\""),
 )
 
 private val moreFlashablePartitions = listOf(
-    FlashablePartition("dtbo", "dtbo"),
+    FlashablePartition("logo", "logo"),
     FlashablePartition("vbmeta_system", "vbmeta_system"),
     FlashablePartition("vbmeta_vendor", "vbmeta_vendor"),
     FlashablePartition("system", "system", logical = true),
@@ -192,6 +201,11 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     var dynamicResult by rememberSaveable { mutableStateOf("") }
     var confirmAction by remember { mutableStateOf<PendingConfirm?>(null) }
     var partitionDialog by remember { mutableStateOf<PartitionDialog?>(null) }
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
+    var advancedAcknowledged by rememberSaveable { mutableStateOf(false) }
+    // File attached to the terminal; only copied to cache when a command (flash/boot) uses it.
+    var attachedUri by remember { mutableStateOf<Uri?>(null) }
+    var attachedName by remember { mutableStateOf("") }
     val entries by logRepository.entries.collectAsState()
 
     // Keeps this screen's status in sync with what Home already saw. Home
@@ -259,6 +273,12 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             val path = SafFiles.copyToCache(context, uri, "twrp.img")
             ops.boot(File(path))
         }
+    }
+
+    val attachPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        attachedUri = uri
+        attachedName = SafFiles.displayName(context, uri, "attached file")
     }
 
     fun startFlash(p: FlashablePartition) {
@@ -410,7 +430,178 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                 ActionListGroup(statusEntries)
             }
 
+            item {
+                SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Boot TWRP image",
+                            icon = Icons.Filled.SystemUpdate,
+                            enabled = !busy,
+                            onClick = { twrpPicker.launch(arrayOf("*/*")) }
+                        )
+                    )
+                )
+            }
 
+            item {
+                SectionHeading(Icons.Filled.Bolt, "Flash partition", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    flashablePartitions.map { p ->
+                        ActionEntry(
+                            title = "Flash ${p.label}",
+                            subtitle = p.note,
+                            icon = Icons.Filled.Bolt,
+                            enabled = !busy,
+                            onClick = { pendingFlash = p; flashPicker.launch(arrayOf("*/*")) }
+                        )
+                    }
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    rebootOptions.map { opt ->
+                        ActionEntry(
+                            title = opt.label,
+                            icon = Icons.Filled.RestartAlt,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithFeedback(snackbarHostState, opt.feedback, { busy = it }) {
+                                    ops.reboot(opt.target).also { connected = false }
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Terminal, "Terminal", modifier = Modifier.padding(start = 4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Type only what comes after \"fastboot\", e.g. getvar product, reboot recovery or oem device-info. " +
+                                "To flash a file: attach it, then type flash <partition> (or boot).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = manualCommand,
+                            onValueChange = { manualCommand = it },
+                            placeholder = { Text("getvar product") },
+                            leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
+                            singleLine = true,
+                            enabled = !busy,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (attachedUri != null) {
+                            Text(
+                                "Attached: $attachedName",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                enabled = !busy,
+                                onClick = { attachPicker.launch(arrayOf("*/*")) }
+                            ) {
+                                Icon(Icons.Filled.AttachFile, contentDescription = null)
+                                Text("  Attach file")
+                            }
+                            if (attachedUri != null) {
+                                FilledTonalButton(
+                                    enabled = !busy,
+                                    onClick = { attachedUri = null; attachedName = "" }
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = null)
+                                    Text("  Remove")
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            FilledTonalButton(
+                                enabled = manualCommand.isNotBlank() && !busy,
+                                onClick = {
+                                    val cmd = manualCommand.trim()
+                                    val uri = attachedUri
+                                    scope.launchWithTextFeedback(
+                                        snackbarHostState, "Send command",
+                                        isSuccess = { textOk(it) },
+                                        setBusy = { busy = it },
+                                        onResult = { manualResult = it }
+                                    ) {
+                                        // Only copy the attachment when the command actually uses it -
+                                        // it can be a multi-hundred-MB image.
+                                        val file = if (uri != null && ops.commandNeedsFile(cmd)) {
+                                            File(SafFiles.copyToCache(context, uri, "terminal_attachment.img"))
+                                        } else null
+                                        ops.rawCommandWithFile(cmd, file)
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Filled.Send, contentDescription = null)
+                                Text("  Send")
+                            }
+                        }
+                        if (manualResult.isNotBlank()) {
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                                SelectionContainer {
+                                    Text(
+                                        manualResult,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (textOk(manualResult)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Tune, "Advanced", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (advancedOpen) "Hide advanced options" else "Show advanced options",
+                            subtitle = if (advancedOpen) null else "System/super flashing, bootloader lock, dynamic partitions, device info, command handbook",
+                            icon = if (advancedOpen) Icons.Filled.ExpandLess else Icons.Filled.Tune,
+                            onClick = {
+                                if (advancedOpen) {
+                                    advancedOpen = false
+                                } else if (advancedAcknowledged) {
+                                    advancedOpen = true
+                                } else {
+                                    confirmAction = PendingConfirm(
+                                        "Open advanced options?",
+                                        "These options are not part of everyday flashing. A wrong image, partition or command can erase data or leave the device unable to boot. Only continue if you know what you're doing.",
+                                        "I understand"
+                                    ) {
+                                        advancedAcknowledged = true
+                                        advancedOpen = true
+                                    }
+                                }
+                            }
+                        )
+                    )
+                )
+            }
+
+            if (advancedOpen) {
             item {
                 SectionHeading(Icons.Filled.Memory, "Device information", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
@@ -462,31 +653,35 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             }
 
             item {
-                SectionHeading(Icons.Filled.SystemUpdate, "Boot without flashing (e.g. TWRP)", modifier = Modifier.padding(start = 4.dp))
+                SectionHeading(Icons.Filled.Info, "Bootloader status", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     listOf(
                         ActionEntry(
-                            title = "Boot TWRP image",
-                            icon = Icons.Filled.SystemUpdate,
+                            title = "Check Status UBL (oem device-info)",
+                            icon = Icons.Filled.Info,
                             enabled = !busy,
-                            onClick = { twrpPicker.launch(arrayOf("*/*")) }
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Check Status UBL",
+                                    isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
+                                    setBusy = { busy = it },
+                                    onResult = { ublStatusResult = it }
+                                ) { ops.rawCommandWithResponse("oem device-info") }
+                            }
                         )
                     )
                 )
-            }
-
-            item {
-                SectionHeading(Icons.Filled.Bolt, "Flash partition", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    flashablePartitions.map { p ->
-                        ActionEntry(
-                            title = "Flash ${p.label}",
-                            icon = Icons.Filled.Bolt,
-                            enabled = !busy,
-                            onClick = { pendingFlash = p; flashPicker.launch(arrayOf("*/*")) }
+                if (ublStatusResult.isNotBlank()) {
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                        Text(
+                            ublStatusResult,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                )
+                }
             }
 
             item {
@@ -739,148 +934,9 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             }
 
             item {
-                SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    rebootOptions.map { opt ->
-                        ActionEntry(
-                            title = opt.label,
-                            icon = Icons.Filled.RestartAlt,
-                            enabled = !busy,
-                            onClick = {
-                                scope.launchWithFeedback(snackbarHostState, opt.feedback, { busy = it }) {
-                                    ops.reboot(opt.target).also { connected = false }
-                                }
-                            }
-                        )
-                    }
-                )
-            }
-
-            item {
-                SectionHeading(Icons.Filled.Info, "Status", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    listOf(
-                        ActionEntry(
-                            title = "Check Status UBL (oem device-info)",
-                            icon = Icons.Filled.Info,
-                            enabled = !busy,
-                            onClick = {
-                                scope.launchWithTextFeedback(
-                                    snackbarHostState, "Check Status UBL",
-                                    isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
-                                    setBusy = { busy = it },
-                                    onResult = { ublStatusResult = it }
-                                ) { ops.rawCommandWithResponse("oem device-info") }
-                            }
-                        )
-                    )
-                )
-                if (ublStatusResult.isNotBlank()) {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                        Text(
-                            ublStatusResult,
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            item {
-                SectionHeading(Icons.Filled.Terminal, "Manual command (raw wire protocol)")
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    "Don't type the word \"fastboot\" - just the part after it.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                                Text(
-                     "Want to run  fastboot oem device-info?  →  type only  oem device-info\n" +
-                     "Want to run  fastboot reboot recovery?  →  type only  reboot recovery\n" +
-                     "Want to run  fastboot getvar product??  →  type only  getvar:product  (colon, not space)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                        }
-                        // No floating `label` here on purpose - the label cutout in the
-                        // border can look like a rendering glitch on a small phone
-                        // screen. A plain caption above + an in-field leading icon reads
-                        // more clearly as "this is a command box."
-                        OutlinedTextField(
-                            value = manualCommand,
-                            onValueChange = { manualCommand = it },
-                            placeholder = { Text("getvar:product") },
-                            leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
-                            singleLine = true,
-                            enabled = !busy,
-                            textStyle = MaterialTheme.typography.bodyLarge,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                cursorColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        // Live echo: proves keystrokes are actually reaching the state,
-                        // rather than only trusting what the text field itself renders.
-                        if (manualCommand.isNotEmpty()) {
-                            Text(
-                                "Will send: $manualCommand",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            FilledTonalButton(
-                                enabled = manualCommand.isNotBlank() && !busy,
-                                onClick = {
-                                    scope.launchWithTextFeedback(
-                                        snackbarHostState, "Send command",
-                                        isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
-                                        setBusy = { busy = it },
-                                        onResult = { manualResult = it }
-                                    ) { ops.rawCommandWithResponse(manualCommand.trim()) }
-                                }
-                            ) {
-                                Icon(Icons.Filled.Send, contentDescription = null)
-                                Text("  Send")
-                            }
-                        }
-                        // Immediate inline feedback - without this, a successful or failed
-                        // command only showed up in "Recent activity" below, which reads
-                        // as "nothing happened" unless you scroll down to check.
-                        if (manualResult.isNotBlank()) {
-                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                                Text(
-                                    manualResult,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (manualResult.contains("FAILED") || manualResult.contains("ERROR")) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.primary
-                                    },
-                                    modifier = Modifier.padding(10.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
                 SectionHeading(Icons.Filled.MenuBook, "Command handbook", modifier = Modifier.padding(start = 4.dp))
                 FastbootCommandLibrary(onPick = { manualCommand = it })
+            }
             }
 
             item {

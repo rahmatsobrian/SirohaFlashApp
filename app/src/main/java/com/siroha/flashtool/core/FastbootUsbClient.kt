@@ -8,6 +8,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import java.io.File
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 
@@ -162,6 +163,69 @@ class FastbootUsbClient(
         file: File,
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> }
     ): FastbootResponse = sendDownload(file.length(), file, onProgress)
+
+    /**
+     * Device -> host transfer for `fetch:<partition>[:<offset>:<size>]`
+     * (the reverse of a download). Reply sequence per the AOSP protocol:
+     * optional INFO lines, then `DATA<8 hex digits>` announcing how many raw
+     * bytes follow, then exactly that many bytes on the bulk-IN endpoint,
+     * then a final OKAY/FAIL. The payload is streamed straight into [out]
+     * so a whole partition never has to fit in RAM.
+     *
+     * Reads are capped at the bytes still owed, so a read can never swallow
+     * the trailing OKAY packet.
+     */
+    fun fetch(
+        command: String,
+        out: OutputStream,
+        onInfo: (String) -> Unit = {},
+        onProgress: (received: Long, total: Long) -> Unit = { _, _ -> }
+    ): FastbootResponse {
+        val conn = connection ?: return FastbootResponse.Error("device not open")
+        val outEp = epOut ?: return FastbootResponse.Error("no OUT endpoint")
+        val inEp = epIn ?: return FastbootResponse.Error("no IN endpoint")
+        val cmdBytes = command.toByteArray(StandardCharsets.US_ASCII)
+        if (conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, BULK_TIMEOUT_MS) < 0) {
+            return FastbootResponse.Error("write failed for '$command'")
+        }
+
+        var total = -1L
+        header@ while (true) {
+            val packet = readRawPacket() ?: return FastbootResponse.Error("no response to '$command'")
+            if (packet.size < 4) return FastbootResponse.Error("malformed response (too short)")
+            val tag = String(packet, 0, 4, StandardCharsets.US_ASCII)
+            val rest = if (packet.size > 4) String(packet, 4, packet.size - 4, StandardCharsets.US_ASCII) else ""
+            when (tag) {
+                "INFO" -> onInfo(rest)
+                "DATA" -> {
+                    total = rest.trim().toLongOrNull(16)
+                        ?: return FastbootResponse.Error("bad DATA size '$rest'")
+                    break@header
+                }
+                "FAIL" -> return FastbootResponse.Fail(rest)
+                "OKAY" -> return FastbootResponse.Okay(rest) // nothing to transfer
+                else -> return FastbootResponse.Error("unknown response tag '$tag'")
+            }
+        }
+
+        val buffer = ByteArray(MAX_CHUNK)
+        var received = 0L
+        var emptyReads = 0
+        while (received < total) {
+            val toRead = minOf(MAX_CHUNK.toLong(), total - received).toInt()
+            val n = conn.bulkTransfer(inEp, buffer, toRead, BULK_TIMEOUT_MS)
+            if (n < 0) return FastbootResponse.Error("payload read failed at offset $received of $total")
+            if (n == 0) {
+                if (++emptyReads > 20) return FastbootResponse.Error("device stopped sending data at offset $received of $total")
+                continue
+            }
+            emptyReads = 0
+            out.write(buffer, 0, n)
+            received += n
+            onProgress(received, total)
+        }
+        return readUntilTerminal(onInfo)
+    }
 
     /** Handles the DATA<size> handshake + raw payload write for download:. */
     private fun sendDownload(
