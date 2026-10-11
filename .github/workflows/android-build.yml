@@ -102,16 +102,25 @@ jobs:
           name: build-log
           path: full-build-log.txt
           retention-days: 14
+          compression-level: 9
 
-      - name: Upload APKs
+      - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          name: apk-debug
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
+          compression-level: 9
+
+      - name: Upload release APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-release
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 14
+          compression-level: 9
 
       - name: Print short summary to job log
         if: always()
