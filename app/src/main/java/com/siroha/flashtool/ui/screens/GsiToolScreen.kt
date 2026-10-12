@@ -1,5 +1,8 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -138,8 +141,9 @@ fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepo
         topBar = { SirohaTopBar("GSI ROM Flash Tool", icon = Icons.Filled.RocketLaunch, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding), // Hapus .padding(16.dp) dari sini
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(), // Hapus .padding(16.dp) dari sini
             contentPadding = PaddingValues(16.dp),              // Pindahkan ke sini
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -184,5 +188,11 @@ fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepo
                 }
             }
         }
+        OperationOverlay(
+            busy = busy,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }

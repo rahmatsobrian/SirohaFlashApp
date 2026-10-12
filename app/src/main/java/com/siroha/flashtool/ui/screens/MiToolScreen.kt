@@ -1,5 +1,7 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.foundation.layout.Box
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -140,8 +142,9 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
         topBar = { SirohaTopBar("MiTool", icon = Icons.Filled.Extension, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding), // Hapus .padding(16.dp) dari sini
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(), // Hapus .padding(16.dp) dari sini
             contentPadding = PaddingValues(16.dp),              // Pindahkan ke sini
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -390,5 +393,11 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
                 }
             }
         }
+        OperationOverlay(
+            busy = busy,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }

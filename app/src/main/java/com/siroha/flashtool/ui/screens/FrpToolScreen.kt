@@ -1,5 +1,8 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,8 +60,9 @@ fun FrpToolScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOper
         topBar = { SirohaTopBar("FRP Remove Tool", icon = Icons.Filled.Shield, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding), // Hapus .padding(16.dp) dari sini
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(), // Hapus .padding(16.dp) dari sini
             contentPadding = PaddingValues(16.dp),              // Pindahkan ke sini
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -168,5 +172,11 @@ fun FrpToolScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOper
                 }
             }
         }
+        OperationOverlay(
+            busy = busy,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }

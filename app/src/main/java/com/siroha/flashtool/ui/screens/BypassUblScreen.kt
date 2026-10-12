@@ -1,5 +1,8 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.core.OperationStatus
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -74,8 +77,9 @@ fun BypassUblScreen(
         topBar = { SirohaTopBar("Bypass UBL - Redmi 4A", icon = Icons.Filled.Shield, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding), // Hapus .padding(16.dp) dari sini
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(), // Hapus .padding(16.dp) dari sini
             contentPadding = PaddingValues(16.dp),              // Pindahkan ke sini
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -208,6 +212,7 @@ fun BypassUblScreen(
                             onClick = {
                                 scope.launch {
                                     running = true
+                                    OperationStatus.begin("Bypass UBL")
                                     output = listOf()
                                     if (dryRun) {
                                         val ops = FlashOperations(context, logRepository)
@@ -216,6 +221,7 @@ fun BypassUblScreen(
                                         val ops = FlashOperations(context, logRepository)
                                         ops.runBypassUblRedmi4ANoRootBridge(allowMissing).collect { line -> output = output + line }
                                     }
+                                    OperationStatus.end()
                                     running = false
                                     val hadError = output.any { it.contains("[error]", ignoreCase = true) }
                                     snackbarHostState.currentSnackbarData?.dismiss()
@@ -258,5 +264,11 @@ fun BypassUblScreen(
                 }
             }
         }
+        OperationOverlay(
+            busy = running,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }

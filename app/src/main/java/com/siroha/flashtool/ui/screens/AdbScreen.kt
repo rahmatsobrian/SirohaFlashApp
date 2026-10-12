@@ -1,5 +1,8 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.core.OperationStatus
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.foundation.layout.Box
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -156,8 +159,13 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
         sideloadRunning = true
         sideloadName = com.siroha.flashtool.core.SafFiles.displayName(context, uri, "sideload.zip")
         busy = true
+        OperationStatus.begin("ADB sideload: $sideloadName")
         scope.launch {
-            val ok = adb.sideloadFromUri(context, uri)
+            val ok = try {
+                adb.sideloadFromUri(context, uri)
+            } finally {
+                OperationStatus.end()
+            }
             busy = false
             sideloadRunning = false
             snackbarHostState.showSnackbar(if (ok) "Sideload finished - check the log below" else "Sideload failed - check the log below")
@@ -168,8 +176,9 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
         topBar = { SirohaTopBar("ADB Tools", icon = Icons.Filled.Terminal, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -248,6 +257,7 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
                                 enabled = command.isNotBlank() && !busy,
                                 onClick = {
                                     busy = true
+                                    OperationStatus.begin(if (shellMode) "ADB shell command" else "ADB command")
                                     scope.launch {
                                         val outcome = runCatching {
                                             if (shellMode) adb.shellWithOutcome(command.trim()) else adb.rawCommand(command.trim())
@@ -255,6 +265,7 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
                                             AdbOperations.ShellOutcome("ERROR: ${e.javaClass.simpleName} - ${e.message ?: "unknown error"}", false)
                                         }
                                         result = outcome.text.ifBlank { "(no output)" }
+                                        OperationStatus.end()
                                         busy = false
                                     }
                                 }
@@ -302,6 +313,12 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
 
             item { AdbLogSection(entries = entries) }
         }
+        OperationOverlay(
+            busy = busy,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }
 

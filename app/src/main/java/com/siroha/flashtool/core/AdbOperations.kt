@@ -180,11 +180,41 @@ class AdbOperations(
             list += PartitionInfo(parts[0], null, parts[1].toLongOrNull()?.takeIf { it > 0 }, false)
         }
         blockDir = dir
+        // blockdev is often missing in recovery shells (every size comes back 0),
+        // so fill in sizes from `ls -l` (link -> mmcblk device) + /proc/partitions.
+        if (dir != null && list.any { it.sizeBytes == null }) {
+            val sizes = readPartitionSizes(c, dir)
+            for (i in list.indices) {
+                if (list[i].sizeBytes == null) sizes[list[i].name]?.let { list[i] = list[i].copy(sizeBytes = it) }
+            }
+        }
         if (list.isEmpty()) {
             return@withContext PartitionTable(emptyList(), "No partitions found in ${dir ?: "/dev/block"}.")
         }
         log.success(TAG, "Read ${list.size} partitions from $dir")
         PartitionTable(list.sortedBy { it.name })
+    }
+
+    /** name -> size in bytes, from `ls -l <dir>/` (link targets) joined with /proc/partitions (1 KiB blocks). */
+    private fun readPartitionSizes(c: AdbUsbClient, dir: String): Map<String, Long> {
+        val buffer = java.io.ByteArrayOutputStream()
+        val res = c.execToStream("ls -l $dir/; echo ===PARTS===; cat /proc/partitions", buffer)
+        if (res.error != null) return emptyMap()
+        val text = buffer.toString(Charsets.UTF_8.name())
+        val halves = text.split("===PARTS===", limit = 2)
+        val bytesByDevice = HashMap<String, Long>()
+        for (line in (halves.getOrNull(1) ?: "").lineSequence()) {
+            val f = line.trim().split(Regex("\\s+"))
+            if (f.size >= 4) f[2].toLongOrNull()?.let { bytesByDevice[f[3]] = it * 1024 }
+        }
+        val link = Regex("(\\S+)\\s+->\\s+(\\S+)")
+        val sizes = HashMap<String, Long>()
+        for (line in halves[0].lineSequence()) {
+            val m = link.find(line.trim()) ?: continue
+            val device = m.groupValues[2].substringAfterLast('/')
+            bytesByDevice[device]?.takeIf { it > 0 }?.let { sizes[m.groupValues[1]] = it }
+        }
+        return sizes
     }
 
     /**
@@ -219,14 +249,19 @@ class AdbOperations(
             OperationStatus.reportProgress(done, total)
             onProgress(done, total)
         }
-        // dd with a 1 MiB block is the usual tool for dumping a block device;
-        // exit code 127 means this shell has no dd, so fall back to cat.
-        var res = c.execToStream("dd if=$dir/$partition bs=1048576", out, progress)
-        if (res.error == null && res.exitCode == 127) {
-            log.warn(TAG, "dd isn't available in this shell - falling back to cat")
-            res = c.execToStream("cat $dir/$partition", out, progress)
+        // dd with a 1 MiB block is the usual tool for dumping a block device. If it
+        // produced nothing at all (not installed, or refused), retry with cat -
+        // safe because nothing has been written to [out] yet.
+        val path = "$dir/$partition"
+        var res = c.execToStream("dd if=$path bs=1048576", out, progress)
+        if (res.error == null && res.bytes == 0L) {
+            log.warn(
+                TAG,
+                "dd returned no data (exit ${res.exitCode ?: "unknown"}${res.stderr.trim().takeIf { it.isNotEmpty() }?.let { ": $it" }.orEmpty()}) - retrying with cat"
+            )
+            res = c.execToStream("cat $path", out, progress)
         }
-        val failure = when {
+        var failure: String? = when {
             res.error != null -> res.error
             res.exitCode != null && res.exitCode != 0 ->
                 "read exited with ${res.exitCode}" + res.stderr.trim().takeIf { it.isNotEmpty() }?.let { ": $it" }.orEmpty()
@@ -234,13 +269,20 @@ class AdbOperations(
                 "received ${res.bytes} bytes but the partition is $expectedBytes bytes"
             else -> null
         }
+        if (failure == null && res.bytes == 0L) {
+            // A partition is never 0 bytes: treat "no data" as a failure and say what the shell sees.
+            val probe = java.io.ByteArrayOutputStream()
+            c.execToStream("ls -l $path 2>&1; id 2>&1", probe)
+            val detail = probe.toString(Charsets.UTF_8.name()).trim().replace('\n', '|').take(220)
+            failure = "the device returned no data" + if (detail.isNotEmpty()) " ($detail)" else ""
+        }
         if (failure != null) {
             lastBackupFailure = failure
             log.error(TAG, "backup $partition: FAILED - $failure")
             return@withContext false
         }
         if (res.exitCode == null && expectedBytes == null) {
-            log.warn(TAG, "backup $partition: this device gives no exit code and no size, so the copy couldn't be verified")
+            log.warn(TAG, "backup $partition: no exit code and no known size, so the copy could only be checked for being non-empty")
         }
         log.success(TAG, "backup $partition: OK (${res.bytes} bytes)")
         true
@@ -367,6 +409,7 @@ class AdbOperations(
     private suspend fun runSideload(c: AdbUsbClient, run: suspend (onProgress: (Long, Long) -> Unit) -> AdbUsbClient.SideloadResult): Boolean {
         var lastLoggedPercent = -1
         val result = run { sent, total ->
+            OperationStatus.reportProgress(sent, total)
             val percent = if (total > 0) ((sent * 100) / total).toInt() else 0
             if (percent != lastLoggedPercent && percent % 10 == 0) {
                 log.info(TAG, "  sideload: $percent% ($sent/$total bytes)")

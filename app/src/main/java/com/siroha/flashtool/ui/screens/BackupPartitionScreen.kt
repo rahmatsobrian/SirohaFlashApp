@@ -117,42 +117,43 @@ private fun CompactPartitionRow(
     shape: Shape,
     onToggle: () -> Unit
 ) {
-    Surface(
-        onClick = onToggle,
-        enabled = enabled,
-        shape = shape,
-        color = if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+    // A clickable Surface reserves a 48dp touch target and draws the row in the middle of it, which
+    // showed up as big gaps between rows. The whole row is the tap target, so switch the reservation off.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        Surface(
+            onClick = onToggle,
+            enabled = enabled,
+            shape = shape,
+            color = if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // The stock 48dp touch target would make every row tall; the whole row is the tap target anyway.
-            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-            }
-            Text(
-                partition.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            val detail = listOfNotNull(
-                if (partition.logical) "logical" else null,
-                partition.type,
-                partition.sizeBytes?.let { fmtSize(it) }
-            ).joinToString(" | ")
-            if (detail.isNotEmpty()) {
                 Text(
-                    detail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    partition.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                val detail = listOfNotNull(
+                    if (partition.logical) "logical" else null,
+                    partition.type,
+                    partition.sizeBytes?.let { fmtSize(it) }
+                ).joinToString(" | ")
+                if (detail.isNotEmpty()) {
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

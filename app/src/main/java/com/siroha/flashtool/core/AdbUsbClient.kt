@@ -551,6 +551,7 @@ class AdbUsbClient(
     ): ExecStreamResult {
         val v2 = supportsShellV2
         val service = if (v2) "shell,v2,raw:$command" else "exec:$command"
+        drainPending()
         val localId = nextLocalId++
         if (!sendMessage(A_OPEN, localId, 0, "$service\u0000".toByteArray())) {
             return ExecStreamResult(null, "", 0, "couldn't send the OPEN message")
@@ -565,6 +566,12 @@ class AdbUsbClient(
         while (true) {
             val msg = readMessage()
                 ?: return ExecStreamResult(exitCode, stderr.toString(), total, "connection lost or timed out after $total bytes")
+            // A leftover message from an earlier stream (its id is not ours) must not be mistaken
+            // for this stream's data or close - that looked like a successful 0-byte transfer.
+            if (msg.arg1 != localId && (msg.command == A_OKAY || msg.command == A_WRTE || msg.command == A_CLSE)) {
+                log.debug(TAG, "ignoring stale message for stream ${msg.arg1} (ours is $localId)")
+                continue
+            }
             when (msg.command) {
                 A_OKAY -> if (remoteId == 0) remoteId = msg.arg0
                 A_WRTE -> {
@@ -605,6 +612,16 @@ class AdbUsbClient(
             }
         }
         return ExecStreamResult(exitCode, stderr.toString(), total)
+    }
+
+    /** Throws away anything the device still has queued from an earlier stream before a new one starts. */
+    private fun drainPending() {
+        var count = 0
+        while (count < 64) {
+            readMessage(40) ?: break
+            count++
+        }
+        if (count > 0) log.debug(TAG, "discarded $count stale message(s) before opening a new stream")
     }
 
     private data class AdbMessage(val command: Int, val arg0: Int, val arg1: Int, val data: ByteArray)

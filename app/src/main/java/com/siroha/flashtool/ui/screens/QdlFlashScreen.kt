@@ -1,5 +1,8 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.core.OperationStatus
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.foundation.layout.Box
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -248,6 +251,7 @@ fun QdlFlashScreen(
         
         scope.launch {
             running = true
+            OperationStatus.begin("QDL flash")
             output.clear()
 
             val ops = FlashOperations(context, logRepository)
@@ -272,6 +276,7 @@ fun QdlFlashScreen(
                 debugLog = debugLog
             ).collect { line -> output.add(line) }
 
+            OperationStatus.end()
             running = false
             val hadError = output.any { it.contains("[error]", ignoreCase = true) }
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -288,8 +293,9 @@ fun QdlFlashScreen(
         topBar = { SirohaTopBar("QDL Flash (EDL 9008)", icon = Icons.Filled.Bolt, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -560,5 +566,11 @@ fun QdlFlashScreen(
                 }
             }
         }
+        OperationOverlay(
+            busy = running,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
     }
 }
