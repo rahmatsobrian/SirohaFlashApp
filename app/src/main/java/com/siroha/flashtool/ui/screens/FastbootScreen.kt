@@ -77,6 +77,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.style.TextOverflow
+import com.siroha.flashtool.ui.theme.HapticIconButton
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
@@ -120,10 +122,10 @@ private val flashablePartitions = listOf(
     FlashablePartition("dtbo", "dtbo"),
     FlashablePartition("Recovery", "recovery"),
     FlashablePartition("vbmeta", "vbmeta"),
-    FlashablePartition("splash", "splash", note = "Boot logo - some devices name it \"logo\""),
 )
 
 private val moreFlashablePartitions = listOf(
+    FlashablePartition("splash", "splash", note = "Boot logo - some devices name it \"logo\""),
     FlashablePartition("logo", "logo"),
     FlashablePartition("vbmeta_system", "vbmeta_system"),
     FlashablePartition("vbmeta_vendor", "vbmeta_vendor"),
@@ -150,21 +152,31 @@ private val rebootOptions = listOf(
     RebootOption("FastbootD", FastbootRebootTarget.FASTBOOTD),
     RebootOption("Continue boot", FastbootRebootTarget.CONTINUE, feedback = "Continue boot"),
     RebootOption("Power off", FastbootRebootTarget.POWEROFF, feedback = "Power off"),
+    RebootOption("EDL (9008)", FastbootRebootTarget.EDL, feedback = "Reboot to EDL"),
 )
 
-/** Monospace result box shared by the new sections; red when the text reports a failure. */
+/**
+ * Monospace result box shared by the sections below; red when the text
+ * reports a failure. The X clears it, so a small result (device summary,
+ * UBL status, ...) doesn't stay on screen until the person leaves the menu.
+ */
 @Composable
-private fun ResultCard(text: String) {
+private fun ResultCard(text: String, onDismiss: () -> Unit) {
     if (text.isBlank()) return
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-        SelectionContainer {
-            Text(
-                text,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = if (textOk(text)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
-            )
+        Row(verticalAlignment = Alignment.Top) {
+            SelectionContainer(modifier = Modifier.weight(1f)) {
+                Text(
+                    text,
+                    modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (textOk(text)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                )
+            }
+            HapticIconButton(onClick = onDismiss) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss result")
+            }
         }
     }
 }
@@ -201,6 +213,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     var dynamicResult by rememberSaveable { mutableStateOf("") }
     var confirmAction by remember { mutableStateOf<PendingConfirm?>(null) }
     var partitionDialog by remember { mutableStateOf<PartitionDialog?>(null) }
+    var slotChoice by remember { mutableStateOf<FlashablePartition?>(null) }
     var advancedOpen by rememberSaveable { mutableStateOf(false) }
     var advancedAcknowledged by rememberSaveable { mutableStateOf(false) }
     // File attached to the terminal; only copied to cache when a command (flash/boot) uses it.
@@ -284,6 +297,27 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     fun startFlash(p: FlashablePartition) {
         pendingFlash = p
         flashPicker.launch(arrayOf("*/*"))
+    }
+
+    // Tapping a flash row: if the partition has A/B slots (or the device
+    // can't say), ask which one - plain name, _a or _b - before picking the
+    // image. Only a definite "no slots" skips the question.
+    fun requestFlash(p: FlashablePartition) {
+        scope.launch {
+            val hasSlot = if (connected) ops.partitionHasSlot(p.partition) else null
+            if (hasSlot == false) startFlash(p) else slotChoice = p
+        }
+    }
+
+    slotChoice?.let { p ->
+        SlotChoiceDialog(
+            partition = p.partition,
+            onChoose = { suffix ->
+                slotChoice = null
+                startFlash(p.copy(label = p.label + suffix, partition = p.partition + suffix))
+            },
+            onDismiss = { slotChoice = null }
+        )
     }
 
     confirmAction?.let { c ->
@@ -453,7 +487,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                             subtitle = p.note,
                             icon = Icons.Filled.Bolt,
                             enabled = !busy,
-                            onClick = { pendingFlash = p; flashPicker.launch(arrayOf("*/*")) }
+                            onClick = { requestFlash(p) }
                         )
                     }
                 )
@@ -475,6 +509,28 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         )
                     }
                 )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Info, "Bootloader status", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Check Status UBL (oem device-info)",
+                            icon = Icons.Filled.Info,
+                            enabled = !busy,
+                            onClick = {
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Check Status UBL",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { ublStatusResult = it }
+                                ) { ops.rawCommandWithResponse("oem device-info") }
+                            }
+                        )
+                    )
+                )
+                ResultCard(ublStatusResult) { ublStatusResult = "" }
             }
 
             item {
@@ -508,6 +564,8 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         if (attachedUri != null) {
                             Text(
                                 "Attached: $attachedName",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.primary
@@ -515,59 +573,49 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(
+                                modifier = Modifier.weight(1f),
                                 enabled = !busy,
                                 onClick = { attachPicker.launch(arrayOf("*/*")) }
                             ) {
                                 Icon(Icons.Filled.AttachFile, contentDescription = null)
-                                Text("  Attach file")
+                                Text("  Attach file", maxLines = 1)
                             }
                             if (attachedUri != null) {
                                 FilledTonalButton(
+                                    modifier = Modifier.weight(1f),
                                     enabled = !busy,
                                     onClick = { attachedUri = null; attachedName = "" }
                                 ) {
                                     Icon(Icons.Filled.Close, contentDescription = null)
-                                    Text("  Remove")
-                                }
-                            }
-                            Spacer(Modifier.weight(1f))
-                            FilledTonalButton(
-                                enabled = manualCommand.isNotBlank() && !busy,
-                                onClick = {
-                                    val cmd = manualCommand.trim()
-                                    val uri = attachedUri
-                                    scope.launchWithTextFeedback(
-                                        snackbarHostState, "Send command",
-                                        isSuccess = { textOk(it) },
-                                        setBusy = { busy = it },
-                                        onResult = { manualResult = it }
-                                    ) {
-                                        // Only copy the attachment when the command actually uses it -
-                                        // it can be a multi-hundred-MB image.
-                                        val file = if (uri != null && ops.commandNeedsFile(cmd)) {
-                                            File(SafFiles.copyToCache(context, uri, "terminal_attachment.img"))
-                                        } else null
-                                        ops.rawCommandWithFile(cmd, file)
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Filled.Send, contentDescription = null)
-                                Text("  Send")
-                            }
-                        }
-                        if (manualResult.isNotBlank()) {
-                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                                SelectionContainer {
-                                    Text(
-                                        manualResult,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = if (textOk(manualResult)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(10.dp)
-                                    )
+                                    Text("  Remove", maxLines = 1)
                                 }
                             }
                         }
+                        FilledTonalButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = manualCommand.isNotBlank() && !busy,
+                            onClick = {
+                                val cmd = manualCommand.trim()
+                                val uri = attachedUri
+                                scope.launchWithTextFeedback(
+                                    snackbarHostState, "Send command",
+                                    isSuccess = { textOk(it) },
+                                    setBusy = { busy = it },
+                                    onResult = { manualResult = it }
+                                ) {
+                                    // Only copy the attachment when the command actually uses it -
+                                    // it can be a multi-hundred-MB image.
+                                    val file = if (uri != null && ops.commandNeedsFile(cmd)) {
+                                        File(SafFiles.copyToCache(context, uri, "terminal_attachment.img"))
+                                    } else null
+                                    ops.rawCommandWithFile(cmd, file)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Filled.Send, contentDescription = null)
+                            Text("  Send")
+                        }
+                        ResultCard(manualResult) { manualResult = "" }
                     }
                 }
             }
@@ -649,39 +697,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         )
                     )
                 )
-                ResultCard(deviceInfoResult)
-            }
-
-            item {
-                SectionHeading(Icons.Filled.Info, "Bootloader status", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    listOf(
-                        ActionEntry(
-                            title = "Check Status UBL (oem device-info)",
-                            icon = Icons.Filled.Info,
-                            enabled = !busy,
-                            onClick = {
-                                scope.launchWithTextFeedback(
-                                    snackbarHostState, "Check Status UBL",
-                                    isSuccess = { !it.contains("FAILED") && !it.contains("ERROR") },
-                                    setBusy = { busy = it },
-                                    onResult = { ublStatusResult = it }
-                                ) { ops.rawCommandWithResponse("oem device-info") }
-                            }
-                        )
-                    )
-                )
-                if (ublStatusResult.isNotBlank()) {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                        Text(
-                            ublStatusResult,
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                ResultCard(deviceInfoResult) { deviceInfoResult = "" }
             }
 
             item {
@@ -703,9 +719,9 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                                         "Flash ${p.label}?",
                                         "Flashing '${p.label}' with an image that doesn't match this exact device can leave it unable to boot. Only continue if you're sure the image is correct.",
                                         "Choose image"
-                                    ) { startFlash(p) }
+                                    ) { requestFlash(p) }
                                 } else {
-                                    startFlash(p)
+                                    requestFlash(p)
                                 }
                             }
                         )
@@ -855,7 +871,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         )
                     )
                 )
-                ResultCard(lockResult)
+                ResultCard(lockResult) { lockResult = "" }
             }
 
             item {
@@ -930,7 +946,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         )
                     )
                 )
-                ResultCard(dynamicResult)
+                ResultCard(dynamicResult) { dynamicResult = "" }
             }
 
             item {

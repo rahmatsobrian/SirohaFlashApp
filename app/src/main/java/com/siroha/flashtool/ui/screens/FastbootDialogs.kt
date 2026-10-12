@@ -108,3 +108,39 @@ internal fun PartitionInputDialog(
         }
     )
 }
+
+/**
+ * Asks which slot a flash should go to. Offered for partitions that have
+ * A/B slots: the plain name, or an explicit _a / _b target. [onChoose]
+ * receives the suffix to append ("" , "_a" or "_b").
+ */
+@Composable
+internal fun SlotChoiceDialog(
+    partition: String,
+    onChoose: (suffix: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Flash $partition to...") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Pick the exact target. Use the plain name on non-A/B devices.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                listOf("" to partition, "_a" to "${partition}_a", "_b" to "${partition}_b").forEach { (suffix, label) ->
+                    Button(
+                        onClick = { onChoose(suffix) },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(label) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}

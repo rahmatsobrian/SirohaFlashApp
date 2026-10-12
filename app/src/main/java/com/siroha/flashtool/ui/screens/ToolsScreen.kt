@@ -38,7 +38,7 @@ private val toolSections = listOf(
         "Fastboot", Icons.Filled.Build,
         listOf(
             MenuEntry("Fastboot Flash Tool", "Flash boot/recovery/dtbo/vbmeta/splash, reboot, terminal", Icons.Filled.Build, Routes.FASTBOOT),
-            MenuEntry("Backup Partition", "Save boot, recovery, dtbo... from the device to a file", Icons.Filled.Backup, Routes.BACKUP_PARTITION),
+            MenuEntry("Backup Partition", "Pick any partitions from the device list and save them to a folder", Icons.Filled.Backup, Routes.BACKUP_PARTITION),
             MenuEntry("GSI ROM Flash Tool", "Dynamic partitions: erase system, flash GSI", Icons.Filled.RocketLaunch, Routes.GSI_TOOL),
             MenuEntry("A/B Partition Tool", "Slot-aware flashing, active slot switch", Icons.Filled.SwapHoriz, Routes.AB_PARTITION),
             MenuEntry("FRP Remove Tool", "SPRD via fastboot; Samsung/SPRD-MTK via ADB", Icons.Filled.Lock, Routes.FRP_TOOL),

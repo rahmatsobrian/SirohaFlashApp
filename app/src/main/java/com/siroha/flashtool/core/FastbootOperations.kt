@@ -9,6 +9,18 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** One partition as reported by the bootloader's `getvar all`. */
+data class PartitionInfo(
+    val name: String,
+    val type: String?,
+    val sizeBytes: Long?,
+    /** Logical (dynamic) partitions generally can only be read/written from FastbootD. */
+    val logical: Boolean
+)
+
+/** Result of [FastbootOperations.readPartitionTable]; [message] explains an empty list. */
+data class PartitionTable(val partitions: List<PartitionInfo>, val message: String? = null)
+
 /** Reboot targets exposed by the fastboot protocol / flash.sh's reboot menu. */
 enum class FastbootRebootTarget {
     BOOTLOADER, RECOVERY, SYSTEM, FASTBOOTD,
@@ -17,7 +29,14 @@ enum class FastbootRebootTarget {
     CONTINUE,
 
     /** `powerdown` — power the device off (not every bootloader implements it). */
-    POWEROFF
+    POWEROFF,
+
+    /**
+     * Qualcomm EDL (9008). There is no standard fastboot command for this;
+     * vendors use `oem edl`, `oem reboot-edl` or `reboot-edl`, so each is
+     * tried in turn.
+     */
+    EDL
 }
 
 /**
@@ -295,6 +314,11 @@ class FastbootOperations(
 
     suspend fun reboot(target: FastbootRebootTarget): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        if (target == FastbootRebootTarget.EDL) {
+            val ok = rebootToEdl(c)
+            if (ok) disconnect()
+            return@withContext ok
+        }
         val cmd = when (target) {
             FastbootRebootTarget.BOOTLOADER -> "reboot-bootloader"
             FastbootRebootTarget.RECOVERY -> "reboot-recovery"
@@ -302,10 +326,37 @@ class FastbootOperations(
             FastbootRebootTarget.FASTBOOTD -> "reboot-fastboot"
             FastbootRebootTarget.CONTINUE -> "continue"
             FastbootRebootTarget.POWEROFF -> "powerdown"
+            FastbootRebootTarget.EDL -> "oem edl" // handled above; kept so the when stays exhaustive
         }
         val ok = handleResult(c.command(cmd, onInfo = { logInfoLine(it) }), "reboot ${target.name}")
         if (ok) disconnect() // device is gone until it re-enumerates
         ok
+    }
+
+    /**
+     * Tries the known vendor spellings of "reboot to EDL" until one is
+     * accepted. A device that really does reboot usually drops USB before it
+     * can send OKAY, so a dropped connection counts as "probably worked" -
+     * check that a Qualcomm 9008 device shows up afterwards.
+     */
+    private fun rebootToEdl(c: FastbootUsbClient): Boolean {
+        for (cmd in listOf("oem edl", "oem reboot-edl", "reboot-edl")) {
+            when (val r = c.command(cmd, onInfo = { logInfoLine(it) })) {
+                is FastbootUsbClient.FastbootResponse.Okay -> {
+                    log.success(TAG, "'$cmd' accepted - device should now be in EDL (9008)")
+                    return true
+                }
+                is FastbootUsbClient.FastbootResponse.Error -> {
+                    log.warn(TAG, "'$cmd': connection dropped before a reply (${r.reason}) - assuming the device is rebooting into EDL")
+                    return true
+                }
+                is FastbootUsbClient.FastbootResponse.Fail -> {
+                    log.warn(TAG, "'$cmd' not accepted: ${r.message}")
+                }
+            }
+        }
+        log.error(TAG, "None of the EDL reboot commands were accepted - this bootloader may not support rebooting to EDL from fastboot")
+        return false
     }
 
     // ------------------------------------------------------------------
@@ -357,24 +408,28 @@ class FastbootOperations(
 
     /**
      * Runs `getvar all` and turns the partition-size / partition-type /
-     * is-logical lines into one row per partition. Only what the bootloader
-     * itself reports is shown — nothing is guessed.
+     * is-logical lines into one entry per partition. Only what the
+     * bootloader itself reports is returned - nothing is guessed. When the
+     * list can't be read, [PartitionTable.message] says why.
      */
-    suspend fun listPartitions(): String = withContext(Dispatchers.IO) {
-        val c = client ?: run { logAndReturnDisconnected(); return@withContext "ERROR: Not connected — tap Connect first." }
+    suspend fun readPartitionTable(): PartitionTable = withContext(Dispatchers.IO) {
+        val c = client ?: run {
+            logAndReturnDisconnected()
+            return@withContext PartitionTable(emptyList(), "ERROR: Not connected — tap Connect first.")
+        }
         val lines = mutableListOf<String>()
         val result = c.command("getvar:all") { lines += it }
         if (result is FastbootUsbClient.FastbootResponse.Fail) {
             log.error(TAG, "getvar all failed: ${result.message}")
-            return@withContext "FAILED (${result.message})"
+            return@withContext PartitionTable(emptyList(), "FAILED (${result.message})")
         }
         if (result is FastbootUsbClient.FastbootResponse.Error) {
             log.error(TAG, "getvar all error: ${result.reason}")
-            return@withContext "ERROR (${result.reason})"
+            return@withContext PartitionTable(emptyList(), "ERROR (${result.reason})")
         }
 
         val pattern = Regex("^(partition-size|partition-type|is-logical|has-slot):([^:]+):\\s*(.*)$")
-        val sizes = sortedMapOf<String, String>()
+        val sizes = mutableMapOf<String, String>()
         val types = mutableMapOf<String, String>()
         val logical = mutableMapOf<String, String>()
         for (raw in lines) {
@@ -389,16 +444,51 @@ class FastbootOperations(
         val names = (sizes.keys + types.keys + logical.keys).toSortedSet()
         if (names.isEmpty()) {
             log.warn(TAG, "getvar all returned ${lines.size} lines but no partition-* entries")
-            return@withContext "No partition info reported by this bootloader (${lines.size} variables returned).\n" +
-                "Try the manual command: getvar partition-size:boot"
+            return@withContext PartitionTable(
+                emptyList(),
+                "No partition info reported by this bootloader (${lines.size} variables returned)."
+            )
         }
-        log.success(TAG, "Listed ${names.size} partitions")
+        log.success(TAG, "Read ${names.size} partitions")
+        PartitionTable(
+            names.map { n ->
+                PartitionInfo(
+                    name = n,
+                    type = types[n],
+                    sizeBytes = sizes[n]?.let { parseHexSize(it) },
+                    logical = logical[n].equals("yes", ignoreCase = true)
+                )
+            }
+        )
+    }
+
+    /** Human-readable partition table (see [readPartitionTable]). */
+    suspend fun listPartitions(): String {
+        val table = readPartitionTable()
+        if (table.partitions.isEmpty()) {
+            return (table.message ?: "No partitions reported") +
+                if (table.message?.startsWith("No partition info") == true) "\nTry the terminal: getvar partition-size:boot" else ""
+        }
         val header = "%-22s %-8s %-12s %s".format("PARTITION", "TYPE", "SIZE", "LOGICAL")
-        val rows = names.map { n ->
-            val size = sizes[n]?.let { parseHexSize(it)?.let { bytes -> formatBytes(bytes) } ?: it } ?: "-"
-            "%-22s %-8s %-12s %s".format(n, types[n] ?: "-", size, if (logical[n].equals("yes", true)) "yes" else "")
+        val rows = table.partitions.map { p ->
+            "%-22s %-8s %-12s %s".format(p.name, p.type ?: "-", p.sizeBytes?.let { formatBytes(it) } ?: "-", if (p.logical) "yes" else "")
         }
-        (listOf(header) + rows).joinToString("\n") + "\n\n${names.size} partitions"
+        return (listOf(header) + rows).joinToString("\n") + "\n\n${table.partitions.size} partitions"
+    }
+
+    /**
+     * Whether [partition] has _a/_b slots, per `getvar has-slot:`. Null when
+     * the bootloader doesn't answer. A name that already ends in _a/_b is
+     * treated as "no further slot to pick".
+     */
+    suspend fun partitionHasSlot(partition: String): Boolean? = withContext(Dispatchers.IO) {
+        val c = client ?: return@withContext null
+        if (partition.endsWith("_a") || partition.endsWith("_b")) return@withContext false
+        when (queryVar(c, "has-slot:$partition")?.lowercase()) {
+            "yes" -> true
+            "no" -> false
+            else -> null
+        }
     }
 
     /** max-download-size as bytes, or null if the bootloader doesn't report it. */
