@@ -1,6 +1,7 @@
 package com.siroha.flashtool.ui.components
 
 import androidx.compose.material3.SnackbarDuration
+import com.siroha.flashtool.core.OperationStatus
 import androidx.compose.material3.SnackbarHostState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,7 @@ fun CoroutineScope.launchWithFeedback(
 ) {
     launch {
         setBusy(true)
+        OperationStatus.begin(label)
         val ok = try {
             action()
         } catch (e: CancellationException) {
@@ -36,6 +38,7 @@ fun CoroutineScope.launchWithFeedback(
             false
         } finally {
             setBusy(false)
+            OperationStatus.end()
         }
         snackbarHostState.currentSnackbarData?.dismiss()
         snackbarHostState.showSnackbar(
@@ -56,6 +59,7 @@ fun CoroutineScope.launchWithTextFeedback(
 ) {
     launch {
         setBusy(true)
+        OperationStatus.begin(label)
         val result = try {
             action()
         } catch (e: CancellationException) {
@@ -64,6 +68,7 @@ fun CoroutineScope.launchWithTextFeedback(
             "ERROR: ${e.javaClass.simpleName} — ${e.message ?: "unknown error"}"
         } finally {
             setBusy(false)
+            OperationStatus.end()
         }
         onResult(result)
         snackbarHostState.currentSnackbarData?.dismiss()
@@ -95,6 +100,7 @@ fun <T> CoroutineScope.launchWithOutcomeFeedback(
 ) {
     launch {
         setBusy(true)
+        OperationStatus.begin(label)
         val result = try {
             action()
         } catch (e: CancellationException) {
@@ -103,6 +109,7 @@ fun <T> CoroutineScope.launchWithOutcomeFeedback(
             fallback(e)
         } finally {
             setBusy(false)
+            OperationStatus.end()
         }
         onResult(result)
         snackbarHostState.currentSnackbarData?.dismiss()

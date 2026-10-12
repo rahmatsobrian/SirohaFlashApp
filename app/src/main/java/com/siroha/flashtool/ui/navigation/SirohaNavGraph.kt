@@ -206,6 +206,7 @@ fun SirohaNavGraph(
         composable(Routes.BACKUP_PARTITION) {
             BackupPartitionScreen(
                 fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
                 logRepository = logRepository,
                 onBack = { navController.popBackStack() }
             )

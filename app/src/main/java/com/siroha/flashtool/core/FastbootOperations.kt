@@ -121,7 +121,10 @@ class FastbootOperations(
             partition = partition,
             file = file,
             onInfo = { log.info(TAG, it) },
-            onProgress = { sent, total -> if (sent == total) log.info(TAG, "  $partition: transferred $total bytes") }
+            onProgress = { sent, total ->
+                OperationStatus.reportProgress(sent, total)
+                if (sent == total) log.info(TAG, "  $partition: transferred $total bytes")
+            }
         )
         handleResult(result, "flash $partition")
     }
@@ -211,7 +214,8 @@ class FastbootOperations(
         val result = c.downloadThen(
             file = file,
             finalCommand = "boot",
-            onInfo = { log.info(TAG, it) }
+            onInfo = { log.info(TAG, it) },
+            onProgress = { sent, total -> OperationStatus.reportProgress(sent, total) }
         )
         handleResult(result, "boot ${file.name}")
     }
@@ -309,7 +313,7 @@ class FastbootOperations(
     /** Stages a file into the device's download buffer without an immediate flash/boot follow-up. */
     suspend fun stageFile(file: File): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
-        handleResult(c.download(file), "download ${file.name} (${file.length()} bytes)")
+        handleResult(c.download(file) { sent, total -> OperationStatus.reportProgress(sent, total) }, "download ${file.name} (${file.length()} bytes)")
     }
 
     suspend fun reboot(target: FastbootRebootTarget): Boolean = withContext(Dispatchers.IO) {
@@ -599,12 +603,22 @@ class FastbootOperations(
      * certain partitions - when it's refused, the bootloader's own message
      * is logged and false is returned.
      */
+    /** The bootloader's FAIL text from the most recent [fetchPartition], e.g. "unknown command" when it has no `fetch`. */
+    @Volatile
+    var lastFetchFailure: String? = null
+        private set
+
     suspend fun fetchPartition(
         partition: String,
         out: java.io.OutputStream,
         onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
     ): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        lastFetchFailure = null
+        val report: (Long, Long) -> Unit = { done, total ->
+            OperationStatus.reportProgress(done, total)
+            onProgress(done, total)
+        }
         val name = resolveSlotName(c, partition)
         val size = queryVar(c, "partition-size:$name")?.let { parseHexSize(it) }
         val maxFetch = queryVar(c, "max-fetch-size")?.let { parseHexSize(it) }
@@ -625,7 +639,7 @@ class FastbootOperations(
                         command = "fetch:$name:0x%08x:0x%08x".format(offset, chunk),
                         out = out,
                         onInfo = { logInfoLine(it) },
-                        onProgress = { done, _ -> onProgress(base + done, size) }
+                        onProgress = { done, _ -> report(base + done, size) }
                     )
                     if (last !is FastbootUsbClient.FastbootResponse.Okay) break
                     offset += chunk
@@ -636,9 +650,10 @@ class FastbootOperations(
                     command = "fetch:$name",
                     out = out,
                     onInfo = { logInfoLine(it) },
-                    onProgress = onProgress
+                    onProgress = report
                 )
             }
+        lastFetchFailure = (result as? FastbootUsbClient.FastbootResponse.Fail)?.message
         handleResult(result, "backup $name")
     }
 

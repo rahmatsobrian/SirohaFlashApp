@@ -127,6 +127,125 @@ class AdbOperations(
         }
     }
 
+    // ------------------------------------------------------------------
+    // Partition backup (device -> file) from recovery / a rooted shell
+    // ------------------------------------------------------------------
+
+    /** Directory holding the by-name block device links, found by [readPartitionTable]. */
+    @Volatile
+    private var blockDir: String? = null
+
+    /** Message from the most recent [backupPartition] failure (stderr / size mismatch), for showing in the UI. */
+    @Volatile
+    var lastBackupFailure: String? = null
+        private set
+
+    /**
+     * Lists the partitions via the device's by-name links and reads each
+     * one's size with `blockdev`. Needs a shell that can see /dev/block -
+     * a recovery such as TWRP, or a rooted system. Sizes the device can't
+     * report are returned as null.
+     */
+    suspend fun readPartitionTable(): PartitionTable = withContext(Dispatchers.IO) {
+        val c = client ?: run {
+            log.error(TAG, "Not connected - call connect() first.")
+            return@withContext PartitionTable(emptyList(), "ERROR: Not connected - tap Connect first.")
+        }
+        val script = "d=; for x in /dev/block/bootdevice/by-name /dev/block/by-name; do " +
+            "if [ -d \$x ]; then d=\$x; break; fi; done; " +
+            "if [ -z \"\$d\" ]; then echo NODIR; exit 1; fi; echo DIR \$d; " +
+            "for p in \$d/*; do n=\${p##*/}; s=\$(blockdev --getsize64 \$p 2>/dev/null); echo \"\$n \${s:-0}\"; done"
+        val buffer = java.io.ByteArrayOutputStream()
+        val res = c.execToStream(script, buffer)
+        val text = buffer.toString(Charsets.UTF_8.name())
+        if (res.error != null) {
+            log.error(TAG, "Reading the partition list failed: ${res.error}")
+            return@withContext PartitionTable(emptyList(), "ERROR (${res.error})")
+        }
+        if (text.contains("NODIR") || res.exitCode.let { it != null && it != 0 }) {
+            log.error(TAG, "No /dev/block/by-name found (exit ${res.exitCode}) ${res.stderr.trim()}")
+            return@withContext PartitionTable(
+                emptyList(),
+                "FAILED - this ADB shell can't see the partition links. Use a recovery (e.g. boot TWRP) or a rooted device."
+            )
+        }
+        var dir: String? = null
+        val list = mutableListOf<PartitionInfo>()
+        for (line in text.lineSequence()) {
+            val t = line.trim()
+            if (t.isEmpty()) continue
+            if (t.startsWith("DIR ")) { dir = t.removePrefix("DIR ").trim(); continue }
+            val parts = t.split(Regex("\\s+"))
+            if (parts.size != 2) continue
+            list += PartitionInfo(parts[0], null, parts[1].toLongOrNull()?.takeIf { it > 0 }, false)
+        }
+        blockDir = dir
+        if (list.isEmpty()) {
+            return@withContext PartitionTable(emptyList(), "No partitions found in ${dir ?: "/dev/block"}.")
+        }
+        log.success(TAG, "Read ${list.size} partitions from $dir")
+        PartitionTable(list.sortedBy { it.name })
+    }
+
+    /**
+     * Streams one partition into [out] with `dd` (or `cat`) on its by-name block
+     * device. When [expectedBytes] is known the byte count must match it
+     * exactly, so a short read can never be reported as a good backup.
+     */
+    suspend fun backupPartition(
+        partition: String,
+        out: java.io.OutputStream,
+        expectedBytes: Long?,
+        onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
+    ): Boolean = withContext(Dispatchers.IO) {
+        lastBackupFailure = null
+        val c = client ?: run {
+            log.error(TAG, "Not connected - call connect() first.")
+            return@withContext false
+        }
+        if (!Regex("^[A-Za-z0-9_.-]+$").matches(partition)) {
+            lastBackupFailure = "invalid partition name"
+            log.error(TAG, "Refusing odd partition name '$partition'")
+            return@withContext false
+        }
+        val dir = blockDir ?: run { readPartitionTable(); blockDir }
+        if (dir == null) {
+            lastBackupFailure = "no by-name directory"
+            return@withContext false
+        }
+        log.info(TAG, "Backing up $partition via ADB ($dir/$partition)" + (expectedBytes?.let { ", $it bytes" } ?: "") + "...")
+        val total = expectedBytes ?: 0L
+        val progress: (Long) -> Unit = { done ->
+            OperationStatus.reportProgress(done, total)
+            onProgress(done, total)
+        }
+        // dd with a 1 MiB block is the usual tool for dumping a block device;
+        // exit code 127 means this shell has no dd, so fall back to cat.
+        var res = c.execToStream("dd if=$dir/$partition bs=1048576", out, progress)
+        if (res.error == null && res.exitCode == 127) {
+            log.warn(TAG, "dd isn't available in this shell - falling back to cat")
+            res = c.execToStream("cat $dir/$partition", out, progress)
+        }
+        val failure = when {
+            res.error != null -> res.error
+            res.exitCode != null && res.exitCode != 0 ->
+                "read exited with ${res.exitCode}" + res.stderr.trim().takeIf { it.isNotEmpty() }?.let { ": $it" }.orEmpty()
+            expectedBytes != null && expectedBytes > 0 && res.bytes != expectedBytes ->
+                "received ${res.bytes} bytes but the partition is $expectedBytes bytes"
+            else -> null
+        }
+        if (failure != null) {
+            lastBackupFailure = failure
+            log.error(TAG, "backup $partition: FAILED - $failure")
+            return@withContext false
+        }
+        if (res.exitCode == null && expectedBytes == null) {
+            log.warn(TAG, "backup $partition: this device gives no exit code and no size, so the copy couldn't be verified")
+        }
+        log.success(TAG, "backup $partition: OK (${res.bytes} bytes)")
+        true
+    }
+
     /** Plain-text convenience wrapper over [shellWithOutcome] for callers that only want the output text. */
     suspend fun shell(command: String): String = shellWithOutcome(command).text
 

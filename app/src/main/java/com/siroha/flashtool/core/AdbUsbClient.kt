@@ -533,6 +533,80 @@ class AdbUsbClient(
 
     // ---- low-level framing ----
 
+    /** Outcome of [execToStream]; [error] is set when the stream itself broke (USB drop / timeout). */
+    data class ExecStreamResult(val exitCode: Int?, val stderr: String, val bytes: Long, val error: String? = null)
+
+    /**
+     * Runs [command] on the device and writes its raw stdout bytes straight
+     * into [out] - binary-safe, unlike [runShellV2] which decodes to text.
+     * Uses `shell,v2,raw:` when available (stdout/stderr/exit code arrive as
+     * separate typed frames, so a failure is reported as a real exit code
+     * and message) and falls back to the legacy `exec:` service, which has
+     * no exit code - callers must then verify the byte count themselves.
+     */
+    fun execToStream(
+        command: String,
+        out: java.io.OutputStream,
+        onBytes: (total: Long) -> Unit = {}
+    ): ExecStreamResult {
+        val v2 = supportsShellV2
+        val service = if (v2) "shell,v2,raw:$command" else "exec:$command"
+        val localId = nextLocalId++
+        if (!sendMessage(A_OPEN, localId, 0, "$service\u0000".toByteArray())) {
+            return ExecStreamResult(null, "", 0, "couldn't send the OPEN message")
+        }
+
+        var remoteId = 0
+        var total = 0L
+        var exitCode: Int? = null
+        val stderr = StringBuilder()
+        var carry = ByteArray(0) // part of a v2 frame split across WRTE messages
+
+        while (true) {
+            val msg = readMessage()
+                ?: return ExecStreamResult(exitCode, stderr.toString(), total, "connection lost or timed out after $total bytes")
+            when (msg.command) {
+                A_OKAY -> if (remoteId == 0) remoteId = msg.arg0
+                A_WRTE -> {
+                    remoteId = msg.arg0
+                    if (!v2) {
+                        out.write(msg.data)
+                        total += msg.data.size
+                        onBytes(total)
+                    } else {
+                        val buf = if (carry.isEmpty()) msg.data else carry + msg.data
+                        var off = 0
+                        while (buf.size - off >= 5) {
+                            val id = buf[off].toInt() and 0xFF
+                            val len = ByteBuffer.wrap(buf, off + 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                            if (len < 0 || buf.size - off - 5 < len) break // body not fully received yet
+                            when (id) {
+                                1 -> { // kIdStdout
+                                    out.write(buf, off + 5, len)
+                                    total += len
+                                    onBytes(total)
+                                }
+                                2 -> stderr.append(String(buf, off + 5, len, Charsets.UTF_8)) // kIdStderr
+                                3 -> exitCode = if (len > 0) buf[off + 5].toInt() and 0xFF else null // kIdExit
+                            }
+                            off += 5 + len
+                        }
+                        carry = if (off < buf.size) buf.copyOfRange(off, buf.size) else ByteArray(0)
+                    }
+                    if (!sendMessage(A_OKAY, localId, remoteId)) {
+                        return ExecStreamResult(exitCode, stderr.toString(), total, "couldn't acknowledge data at $total bytes")
+                    }
+                }
+                A_CLSE -> {
+                    if (remoteId != 0) sendMessage(A_OKAY, localId, remoteId)
+                    break
+                }
+                else -> { /* ignore unrelated traffic */ }
+            }
+        }
+        return ExecStreamResult(exitCode, stderr.toString(), total)
+    }
+
     private data class AdbMessage(val command: Int, val arg0: Int, val arg1: Int, val data: ByteArray)
 
     /**

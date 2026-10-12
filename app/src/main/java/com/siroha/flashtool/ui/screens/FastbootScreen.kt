@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -68,6 +69,7 @@ import com.siroha.flashtool.ui.components.GroupRowSpacing
 import com.siroha.flashtool.ui.components.SectionHeading
 import com.siroha.flashtool.ui.components.SirohaTopBar
 import com.siroha.flashtool.ui.components.groupRowShape
+import com.siroha.flashtool.ui.components.OperationOverlay
 import com.siroha.flashtool.ui.components.launchWithFeedback
 import com.siroha.flashtool.ui.components.launchWithTextFeedback
 import androidx.compose.foundation.layout.PaddingValues
@@ -394,8 +396,9 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         topBar = { SirohaTopBar("Fastboot Flash Tool", icon = Icons.Filled.Build, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
+      Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding), // Hapus .padding(16.dp) dari sini
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),              // Pindahkan ke sini
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -992,5 +995,12 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                 }
             }
         }
+        // Floating progress + live log while an action runs, so it's visible without scrolling down.
+        OperationOverlay(
+            busy = busy,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+      }
     }
 }
