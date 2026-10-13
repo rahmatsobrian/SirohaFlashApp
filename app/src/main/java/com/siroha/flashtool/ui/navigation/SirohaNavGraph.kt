@@ -215,6 +215,7 @@ fun SirohaNavGraph(
             TerminalScreen(
                 session = terminalSession,
                 logRepository = logRepository,
+                adbState = { adbOperations.connectionState },
                 onBack = { navController.popBackStack() }
             )
         }

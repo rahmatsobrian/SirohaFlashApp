@@ -39,7 +39,7 @@ class TerminalSession(
     private val _lines = MutableStateFlow(
         listOf(
             Line("Siroha Terminal - fastboot and adb, typed like on a PC.", Kind.INFO),
-            Line("Attach files with the paperclip and use their names in commands.", Kind.INFO),
+            Line("Tap the paperclip to attach a file - its name is typed into the command line.", Kind.INFO),
             Line("Type help for the list of commands.", Kind.INFO)
         )
     )
@@ -57,6 +57,11 @@ class TerminalSession(
     /** The line being executed, untouched - `adb shell ls "/sdcard/My Files"` must keep its quoting. */
     private var currentLine = ""
 
+    @Volatile
+    private var commandRunning = false
+
+    private var adbAutoConnectTried = false
+
     private var shellMode = false
     private var cwd = "/"
     private var deviceName = "android"
@@ -66,8 +71,10 @@ class TerminalSession(
     // Attachments and screen state
     // ------------------------------------------------------------------
 
+    /** Only one file can be attached at a time: attaching another replaces it. */
     fun attach(name: String, uri: Uri) {
-        _attachments.value = _attachments.value.filterNot { it.name.equals(name, ignoreCase = true) } + Attachment(name, uri)
+        _attachments.value = listOf(Attachment(name, uri))
+        info("attached: $name")
     }
 
     fun detach(name: String): Boolean {
@@ -86,6 +93,7 @@ class TerminalSession(
     private fun add(text: String, kind: Kind) {
         val cleaned = ANSI.replace(text, "").replace("\r\n", "\n").replace('\r', '\n')
         val parts = cleaned.split('\n').let { if (it.size > 1 && it.last().isEmpty()) it.dropLast(1) else it }
+            .map { expandTabs(it) }
         var shown = parts
         var extra = 0
         if (parts.size > MAX_LINES_PER_PRINT) {
@@ -95,6 +103,16 @@ class TerminalSession(
         val added = shown.map { Line(it, kind) } +
             (if (extra > 0) listOf(Line("... $extra more lines not shown (see Utilities > Logs)", Kind.INFO)) else emptyList())
         _lines.value = (_lines.value + added).takeLast(MAX_LINES)
+    }
+
+    /** Compose draws a tab as nothing, so "serial<TAB>device" would show as "serialdevice". Pad to 8-column stops instead. */
+    private fun expandTabs(line: String): String {
+        if ('\t' !in line) return line
+        val sb = StringBuilder()
+        for (c in line) {
+            if (c == '\t') repeat(8 - sb.length % 8) { sb.append(' ') } else sb.append(c)
+        }
+        return sb.toString()
     }
 
     private fun out(text: String) = add(text, Kind.OUTPUT)
@@ -116,6 +134,7 @@ class TerminalSession(
         add(_prompt.value + line, Kind.INPUT)
 
         currentLine = line
+        commandRunning = true
         OperationStatus.begin(line.take(70))
         try {
             if (shellMode) runShellLine(line) else runLocalLine(line)
@@ -125,6 +144,34 @@ class TerminalSession(
             err("error: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
             OperationStatus.end()
+            commandRunning = false
+        }
+    }
+
+    /**
+     * Called about once a second while the terminal is open: drops connections whose phone is gone
+     * (and leaves the device shell), and opens the ADB link once per plug-in so the state
+     * (device / recovery / sideload) is known without the person running anything.
+     */
+    suspend fun refreshConnections() {
+        if (commandRunning) return
+        val devices = UsbDeviceHelper.listDevices(context)
+        val hasFastboot = devices.any { UsbDeviceHelper.isLikelyFastbootDevice(it) }
+        val hasAdb = devices.any { UsbDeviceHelper.isLikelyAdbDevice(it) }
+        if (fastboot.isConnected() && !hasFastboot) fastboot.disconnect()
+        if (adb.isConnected() && !hasAdb) {
+            adb.disconnect()
+            if (shellMode) {
+                shellMode = false
+                updatePrompt()
+                info("device disconnected - left the device shell")
+            }
+        }
+        if (!hasAdb) {
+            adbAutoConnectTried = false
+        } else if (!adb.isConnected() && !adbAutoConnectTried) {
+            adbAutoConnectTried = true
+            adb.connect()
         }
     }
 
@@ -281,7 +328,11 @@ class TerminalSession(
 
     /** Waits (like the PC tool) for a fastboot device, then opens it. */
     private suspend fun ensureFastboot(): Boolean {
-        if (fastboot.isConnected()) return true
+        if (fastboot.isConnected()) {
+            // The link can be stale (phone unplugged or rebooted since): only trust it while the USB device is still there.
+            if (UsbDeviceHelper.listDevices(context).any { UsbDeviceHelper.isLikelyFastbootDevice(it) }) return true
+            fastboot.disconnect()
+        }
         var announced = false
         val deadline = System.currentTimeMillis() + WAIT_FOR_DEVICE_MS
         while (System.currentTimeMillis() < deadline) {
@@ -322,7 +373,18 @@ class TerminalSession(
             "devices" -> {
                 out("List of devices attached")
                 val serials = usbSerials(adbMode = true)
-                if (serials.isNotEmpty()) out(serials.joinToString("\n") { "$it\tdevice" })
+                if (serials.isNotEmpty()) {
+                    // A fresh handshake, like the adb server does, so the state is current:
+                    // device / recovery / sideload / bootloader come from the phone's own banner.
+                    adb.disconnect()
+                    val connected = adb.connect()
+                    val state = when {
+                        connected -> adb.connectionState ?: "device"
+                        adb.lastConnectAwaitingAuth -> "unauthorized"
+                        else -> "offline"
+                    }
+                    out(serials.mapIndexed { i, serial -> "$serial\t${if (i == 0) state else "offline"}" }.joinToString("\n"))
+                }
             }
             "start-server", "kill-server", "usb", "connect", "disconnect", "tcpip" ->
                 info("adb $cmd: not needed - this app talks to the phone directly over USB.")
@@ -472,7 +534,7 @@ class TerminalSession(
 
     private fun listAttachments() {
         val files = _attachments.value
-        if (files.isEmpty()) info("(no files attached - tap the paperclip)") else files.forEach { out(it.name) }
+        if (files.isEmpty()) info("(no file attached - tap the paperclip)") else files.forEach { out(it.name) }
     }
 
     /** Finds an attached file by name (a leading path is ignored), or the obvious default when none was named. */
@@ -514,8 +576,8 @@ class TerminalSession(
                                 oem device-info | flashing unlock | set_active a | -w
               adb <args>        devices | shell [cmd] | reboot [bootloader|recovery]
                                 sideload rom.zip | root | remount | logcat -d
-              ls                list attached files (use their names in commands)
-              rm <file>         detach a file
+              ls                show the attached file
+              rm <file>         detach it
               clear             clear the screen
               help              this text
 
@@ -586,7 +648,7 @@ class TerminalSession(
 
     private companion object {
         const val LOCAL_PROMPT = "$ "
-        const val MAX_LINES = 3000
+        const val MAX_LINES = 2000
         const val MAX_LINES_PER_PRINT = 1500
         const val WAIT_FOR_DEVICE_MS = 15_000L
         val ANSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")

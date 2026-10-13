@@ -1,5 +1,12 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.ui.components.rememberUsbModeInfo
+import com.siroha.flashtool.ui.components.UsbModeStatusCard
+import com.siroha.flashtool.ui.components.UsbMode
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Tune
 import com.siroha.flashtool.core.OperationStatus
 import com.siroha.flashtool.ui.components.OperationOverlay
 import androidx.compose.foundation.layout.Box
@@ -137,6 +144,10 @@ fun QdlFlashScreen(
     var rawprogramLocalPath by remember { mutableStateOf<String?>(null) }
     var partitions by remember { mutableStateOf<List<RawProgramPartition>>(emptyList()) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
+    var advancedAcknowledged by rememberSaveable { mutableStateOf(false) }
+    var showAdvancedConfirm by remember { mutableStateOf(false) }
+    val usbMode by rememberUsbModeInfo()
     var storage by remember { mutableStateOf("emmc") } // matches flash.sh menu 1 (emmc) / menu 2 (ufs)
     var dryRun by remember { mutableStateOf(false) }
     var allowMissing by remember { mutableStateOf(false) }
@@ -289,6 +300,16 @@ fun QdlFlashScreen(
     val filesReady = loaderUri != null && rawprogramLocalPath != null && patchUri != null &&
         (partitions.isEmpty() || selected.isNotEmpty())
 
+    if (showAdvancedConfirm) {
+        ConfirmActionDialog(
+            title = "Open advanced options?",
+            message = "These options are not part of a normal flash. Finalize provisioning is irreversible on the device, and skipping missing files or simulating a run can leave a flash incomplete. Only continue if you know what they do.",
+            confirmLabel = "I understand",
+            onConfirm = { showAdvancedConfirm = false; advancedAcknowledged = true; advancedOpen = true },
+            onDismiss = { showAdvancedConfirm = false }
+        )
+    }
+
     Scaffold(
         topBar = { SirohaTopBar("QDL Flash (EDL 9008)", icon = Icons.Filled.Bolt, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
@@ -306,6 +327,12 @@ fun QdlFlashScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
+
+            item {
+                SectionHeading(Icons.Filled.SystemUpdate, "Device Status", modifier = Modifier.padding(start = 4.dp))
+                UsbModeStatusCard(usbMode, expected = UsbMode.EDL)
+            }
+
 
             // --- TAMBAHKAN BANNER INI ---
             if (!hasStoragePermission) {
@@ -362,50 +389,6 @@ fun QdlFlashScreen(
                 }
             }
 
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeading(Icons.Filled.Bolt, "QDL flashing options", modifier = Modifier.padding(start = 4.dp))
-                    val options = listOf(
-                        QdlOption(
-                            title = "Dry run",
-                            subtitle = "Simulate the flash without writing to the target - no EDL device required.",
-                            icon = Icons.Filled.Info,
-                            warning = false,
-                            checked = dryRun,
-                            onCheckedChange = { dryRun = it }
-                        ),
-                        QdlOption(
-                            title = "Allow missing files",
-                            subtitle = "Skip program/patch entries whose file isn't found instead of failing.",
-                            icon = Icons.Filled.HelpOutline,
-                            warning = false,
-                            checked = allowMissing,
-                            onCheckedChange = { allowMissing = it }
-                        ),
-                        QdlOption(
-                            title = "Finalize provisioning",
-                            subtitle = "Irreversible on the target device - qdl warns before starting. Only enable if you know what this does.",
-                            icon = Icons.Filled.Warning,
-                            warning = true,
-                            checked = finalizeProvisioning,
-                            onCheckedChange = { finalizeProvisioning = it }
-                        ),
-                        QdlOption(
-                            title = "Enable debug log",
-                            subtitle = "Saves a huge raw log to the app's cache folder (qdl_debug.log). Only filtered logs are shown here to prevent crashes.",
-                            icon = Icons.Filled.Article,
-                            warning = true,
-                            checked = debugLog,
-                            onCheckedChange = { debugLog = it }
-                        )
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(GroupRowSpacing)) {
-                        options.forEachIndexed { index, option ->
-                            QdlOptionRow(option, groupRowShape(index, options.size))
-                        }
-                    }
-                }
-            }
 
             item {
                 ActionListGroup(
@@ -529,6 +512,72 @@ fun QdlFlashScreen(
                         )
                     )
                 )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Tune, "Advanced", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (advancedOpen) "Hide advanced options" else "Show advanced options",
+                            subtitle = if (advancedOpen) null else "Dry run, allow missing files, finalize provisioning, debug log",
+                            icon = if (advancedOpen) Icons.Filled.ExpandLess else Icons.Filled.Tune,
+                            enabled = !running,
+                            onClick = {
+                                if (advancedOpen) advancedOpen = false
+                                else if (advancedAcknowledged) advancedOpen = true
+                                else showAdvancedConfirm = true
+                            }
+                        )
+                    )
+                )
+            }
+
+            if (advancedOpen) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeading(Icons.Filled.Bolt, "QDL flashing options", modifier = Modifier.padding(start = 4.dp))
+                    val options = listOf(
+                        QdlOption(
+                            title = "Dry run",
+                            subtitle = "Simulate the flash without writing to the target - no EDL device required.",
+                            icon = Icons.Filled.Info,
+                            warning = false,
+                            checked = dryRun,
+                            onCheckedChange = { dryRun = it }
+                        ),
+                        QdlOption(
+                            title = "Allow missing files",
+                            subtitle = "Skip program/patch entries whose file isn't found instead of failing.",
+                            icon = Icons.Filled.HelpOutline,
+                            warning = false,
+                            checked = allowMissing,
+                            onCheckedChange = { allowMissing = it }
+                        ),
+                        QdlOption(
+                            title = "Finalize provisioning",
+                            subtitle = "Irreversible on the target device - qdl warns before starting. Only enable if you know what this does.",
+                            icon = Icons.Filled.Warning,
+                            warning = true,
+                            checked = finalizeProvisioning,
+                            onCheckedChange = { finalizeProvisioning = it }
+                        ),
+                        QdlOption(
+                            title = "Enable debug log",
+                            subtitle = "Saves a huge raw log to the app's cache folder (qdl_debug.log). Only filtered logs are shown here to prevent crashes.",
+                            icon = Icons.Filled.Article,
+                            warning = true,
+                            checked = debugLog,
+                            onCheckedChange = { debugLog = it }
+                        )
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(GroupRowSpacing)) {
+                        options.forEachIndexed { index, option ->
+                            QdlOptionRow(option, groupRowShape(index, options.size))
+                        }
+                    }
+                }
+            }
             }
         }
         OperationOverlay(

@@ -172,11 +172,18 @@ class AdbUsbClient(
     }
 
     /** True once [handshake] has completed and the device's own CNXN reply advertised `shell_v2` support. */
+    /** Banner state word the device reported on connect ("device", "recovery", "sideload", ...), or null. */
+    var connectionState: String? = null
+        private set
+
     var supportsShellV2: Boolean = false
         private set
 
     private fun recordFeatures(cnxnPayload: ByteArray) {
         val text = String(cnxnPayload, Charsets.UTF_8)
+        // The banner is "<state>::<properties>" - the state is what `adb devices` prints:
+        // device, recovery, sideload, bootloader...
+        connectionState = text.substringBefore("::", "").takeIf { it.isNotEmpty() && it.length <= 20 && it.all { c -> c.isLetter() } }
         supportsShellV2 = text.contains("shell_v2")
     }
 

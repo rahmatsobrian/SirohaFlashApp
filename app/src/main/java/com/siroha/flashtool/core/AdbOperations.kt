@@ -42,6 +42,7 @@ class AdbOperations(
     suspend fun connect(): Boolean = connectMutex.withLock {
         withContext(Dispatchers.IO) {
             if (client != null) return@withContext true // already connected — don't re-claim the interface
+            lastConnectAwaitingAuth = false
 
             val devices = UsbDeviceHelper.listDevices(context).filter { UsbDeviceHelper.isLikelyAdbDevice(it) }
             val device = devices.firstOrNull()
@@ -66,6 +67,7 @@ class AdbOperations(
                     true
                 }
                 is AdbUsbClient.ConnectResult.AwaitingUserAuthorization -> {
+                    lastConnectAwaitingAuth = true
                     log.warn(TAG, "Check the target device screen — tap \"Allow\" on the USB debugging prompt, then tap Connect again.")
                     c.close()
                     false
@@ -83,6 +85,14 @@ class AdbOperations(
         client?.close()
         client = null
     }
+
+    /** What the device said it is when we connected: "device", "recovery", "sideload", "bootloader"... */
+    val connectionState: String? get() = client?.connectionState
+
+    /** True when the last [connect] stopped at the "Allow USB debugging?" prompt (what `adb devices` calls unauthorized). */
+    @Volatile
+    var lastConnectAwaitingAuth: Boolean = false
+        private set
 
     /** True once [connect] has succeeded and hasn't been [disconnect]ed. */
     fun isConnected(): Boolean = client != null

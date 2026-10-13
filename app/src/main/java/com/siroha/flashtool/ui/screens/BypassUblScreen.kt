@@ -1,5 +1,12 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.ui.components.rememberUsbModeInfo
+import com.siroha.flashtool.ui.components.UsbModeStatusCard
+import com.siroha.flashtool.ui.components.UsbMode
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Tune
 import com.siroha.flashtool.core.OperationStatus
 import com.siroha.flashtool.ui.components.OperationOverlay
 import androidx.compose.foundation.layout.Box
@@ -66,12 +73,26 @@ fun BypassUblScreen(
     // qdl's own --dry-run flag which still needs a real device to
     // handshake with).
     var dryRun by remember { mutableStateOf(false) }
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
+    var advancedAcknowledged by rememberSaveable { mutableStateOf(false) }
+    var showAdvancedConfirm by remember { mutableStateOf(false) }
+    val usbMode by rememberUsbModeInfo()
     var simulateFailure by remember { mutableStateOf(false) }
         // Tambahan state untuk allow missing (default true untuk bypass)
     var allowMissing by remember { mutableStateOf(false) }
     // qdl no longer needs root/Shizuku - the no-root USB bridge is always
     // used now (see FlashOperations.runQdlNoRootBridge), so there's no
     // toggle for it anymore.
+
+    if (showAdvancedConfirm) {
+        ConfirmActionDialog(
+            title = "Open advanced options?",
+            message = "These switches are for testing the flow and skipping missing files. Skipping files or simulating a run is not how a normal Bypass UBL is done - leave them off unless you know why you need them.",
+            confirmLabel = "I understand",
+            onConfirm = { showAdvancedConfirm = false; advancedAcknowledged = true; advancedOpen = true },
+            onDismiss = { showAdvancedConfirm = false }
+        )
+    }
 
     Scaffold(
         topBar = { SirohaTopBar("Bypass UBL - Redmi 4A", icon = Icons.Filled.Shield, onBack = onBack) },
@@ -116,8 +137,71 @@ fun BypassUblScreen(
                 }
             }
 
+            item {
+                SectionHeading(Icons.Filled.SystemUpdate, "Device Status", modifier = Modifier.padding(start = 4.dp))
+                UsbModeStatusCard(usbMode, expected = UsbMode.EDL)
+            }
+
+
             // Test-only controls - lets this flow be exercised (including its
             // failure-path UI) without an EDL-capable device on hand.
+            
+             // Opsi Allow Missing Files (SISIPKAN DI SINI)
+
+            item {
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (running) "Running..." else if (dryRun) "Start Bypass UBL (dry run)" else "Start Bypass UBL",
+                            subtitle = if (running) "Please wait, this can take a while" else "Flashes the bundled Redmi 4A (rolex) loader and partition map",
+                            icon = Icons.Filled.PlayArrow,
+                            enabled = !running,
+                            onClick = {
+                                scope.launch {
+                                    running = true
+                                    OperationStatus.begin("Bypass UBL")
+                                    output = listOf()
+                                    if (dryRun) {
+                                        val ops = FlashOperations(context, logRepository)
+                                        ops.runBypassUblRedmi4ASimulated(simulateFailure).collect { line -> output = output + line }
+                                    } else {
+                                        val ops = FlashOperations(context, logRepository)
+                                        ops.runBypassUblRedmi4ANoRootBridge(allowMissing).collect { line -> output = output + line }
+                                    }
+                                    OperationStatus.end()
+                                    running = false
+                                    val hadError = output.any { it.contains("[error]", ignoreCase = true) }
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                    snackbarHostState.showSnackbar(
+                                        if (hadError) "Bypass UBL - failed (see Utilities > Logs)" else "Bypass UBL - finished (see Utilities > Logs)"
+                                    )
+                                }
+                            }
+                        )
+                    )
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.Tune, "Advanced", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (advancedOpen) "Hide advanced options" else "Show advanced options",
+                            subtitle = if (advancedOpen) null else "Dry run and allow-missing-files switches for testing",
+                            icon = if (advancedOpen) Icons.Filled.ExpandLess else Icons.Filled.Tune,
+                            enabled = !running,
+                            onClick = {
+                                if (advancedOpen) advancedOpen = false
+                                else if (advancedAcknowledged) advancedOpen = true
+                                else showAdvancedConfirm = true
+                            }
+                        )
+                    )
+                )
+            }
+
+            if (advancedOpen) {
             item {
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -165,8 +249,7 @@ fun BypassUblScreen(
                     }
                 }
             }
-            
-             // Opsi Allow Missing Files (SISIPKAN DI SINI)
+
             item {
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Row(
@@ -200,39 +283,6 @@ fun BypassUblScreen(
                     }
                 }
             }
-
-            item {
-                ActionListGroup(
-                    listOf(
-                        ActionEntry(
-                            title = if (running) "Running..." else if (dryRun) "Start Bypass UBL (dry run)" else "Start Bypass UBL",
-                            subtitle = if (running) "Please wait, this can take a while" else "Flashes the bundled Redmi 4A (rolex) loader and partition map",
-                            icon = Icons.Filled.PlayArrow,
-                            enabled = !running,
-                            onClick = {
-                                scope.launch {
-                                    running = true
-                                    OperationStatus.begin("Bypass UBL")
-                                    output = listOf()
-                                    if (dryRun) {
-                                        val ops = FlashOperations(context, logRepository)
-                                        ops.runBypassUblRedmi4ASimulated(simulateFailure).collect { line -> output = output + line }
-                                    } else {
-                                        val ops = FlashOperations(context, logRepository)
-                                        ops.runBypassUblRedmi4ANoRootBridge(allowMissing).collect { line -> output = output + line }
-                                    }
-                                    OperationStatus.end()
-                                    running = false
-                                    val hadError = output.any { it.contains("[error]", ignoreCase = true) }
-                                    snackbarHostState.currentSnackbarData?.dismiss()
-                                    snackbarHostState.showSnackbar(
-                                        if (hadError) "Bypass UBL - failed (see Utilities > Logs)" else "Bypass UBL - finished (see Utilities > Logs)"
-                                    )
-                                }
-                            }
-                        )
-                    )
-                )
             }
         }
         OperationOverlay(
