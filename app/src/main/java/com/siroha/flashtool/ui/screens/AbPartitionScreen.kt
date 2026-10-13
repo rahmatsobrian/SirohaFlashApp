@@ -89,7 +89,6 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, logRepository: Log
     var pendingFlash by remember { mutableStateOf<SlotPartition?>(null) }
     var slotDropdownExpanded by remember { mutableStateOf(false) }
     var selectedSlot by remember { mutableStateOf(slotPartitions.first()) }
-    val entries by logRepository.entries.collectAsState()
 
     // One shared picker for every "Flash by slot" row — each row just records which
     // partition it's for, then launches this, instead of each row owning its own
@@ -231,29 +230,6 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, logRepository: Log
                         )
                     )
                 )
-            }
-
-            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
-            item {
-                val recent = entries.takeLast(20)
-                if (recent.isEmpty()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalArrangement = Arrangement.Center) {
-                        Text("No activity yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            recent.forEach { e ->
-                                Text(
-                                    e.format(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         OperationOverlay(

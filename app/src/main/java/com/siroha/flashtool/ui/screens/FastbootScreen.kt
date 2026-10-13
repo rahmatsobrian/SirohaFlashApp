@@ -221,7 +221,6 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     // File attached to the terminal; only copied to cache when a command (flash/boot) uses it.
     var attachedUri by remember { mutableStateOf<Uri?>(null) }
     var attachedName by remember { mutableStateOf("") }
-    val entries by logRepository.entries.collectAsState()
 
     // Keeps this screen's status in sync with what Home already saw. Home
     // only *enumerates* the USB device list to show "Detected - Fastboot"
@@ -970,29 +969,6 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                         )
                     )
                 )
-            }
-
-            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
-            item {
-                val recent = entries.takeLast(20)
-                if (recent.isEmpty()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalArrangement = Arrangement.Center) {
-                        Text("No activity yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            recent.forEach { e ->
-                                Text(
-                                    e.format(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         // Floating progress + live log while an action runs, so it's visible without scrolling down.

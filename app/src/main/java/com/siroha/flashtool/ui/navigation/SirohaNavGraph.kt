@@ -23,6 +23,8 @@ import com.siroha.flashtool.ui.screens.AboutScreen
 import com.siroha.flashtool.ui.screens.AbPartitionScreen
 import com.siroha.flashtool.ui.screens.AdbScreen
 import com.siroha.flashtool.ui.screens.BackupPartitionScreen
+import com.siroha.flashtool.ui.screens.TerminalScreen
+import com.siroha.flashtool.core.TerminalSession
 import com.siroha.flashtool.ui.screens.BypassUblScreen
 import com.siroha.flashtool.ui.screens.FastbootScreen
 import com.siroha.flashtool.ui.screens.FrpToolScreen
@@ -53,6 +55,7 @@ object Routes {
     const val GSI_TOOL = "gsi_tool"
     const val AB_PARTITION = "ab_partition"
     const val BACKUP_PARTITION = "backup_partition"
+    const val TERMINAL = "terminal"
     const val FRP_TOOL = "frp_tool"
     const val ADB = "adb"
     const val USB_FIX = "usb_fix"
@@ -81,6 +84,11 @@ fun SirohaNavGraph(
     adbOperations: AdbOperations,
     navController: NavHostController = rememberNavController() // navController utama (fullscreen)
 ) {
+    // One terminal session for the whole app run, so scrollback and attached files survive leaving the screen.
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val terminalSession = androidx.compose.runtime.remember {
+        TerminalSession(appContext, fastbootOperations, adbOperations, logRepository)
+    }
     NavHost(
         navController = navController,
         startDestination = Routes.MAIN_TABS
@@ -200,6 +208,13 @@ fun SirohaNavGraph(
                 fastbootOperations = fastbootOperations,
                 logRepository = logRepository,
                 onOpenAdb = { navController.navigate(Routes.ADB) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.TERMINAL) {
+            TerminalScreen(
+                session = terminalSession,
+                logRepository = logRepository,
                 onBack = { navController.popBackStack() }
             )
         }

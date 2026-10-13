@@ -104,7 +104,6 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
     // switched into Sideload — a new enumeration this screen never checked
     // for.
     var lastAdbDeviceName by remember { mutableStateOf<String?>(null) }
-    val entries by logRepository.entries.collectAsState()
 
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -299,7 +298,7 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
                                 else -> "Sideload ZIP"
                             },
                             subtitle = if (sideloadRunning) {
-                                "In progress - see DEBUG-level log entries below for live per-block detail"
+                                "In progress - details are in Utilities > Logs"
                             } else {
                                 "Works with any size ZIP - reads directly from storage without copying when possible"
                             },
@@ -311,7 +310,6 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
                 )
             }
 
-            item { AdbLogSection(entries = entries) }
         }
         OperationOverlay(
             busy = busy,
@@ -319,50 +317,5 @@ fun AdbScreen(adbOperations: AdbOperations, logRepository: LogRepository, onBack
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
-    }
-}
-
-@Composable
-private fun AdbLogSection(entries: List<com.siroha.flashtool.data.LogEntry>) {
-    var showDebug by rememberSaveable { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        SectionHeading(Icons.Filled.Info, "Log")
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Debug detail", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Switch(checked = showDebug, onCheckedChange = { showDebug = it })
-        }
-    }
-    // Filtered to this screen's own traffic (tag "Adb") rather than the
-    // whole app's log — sideload of a large file alone can produce
-    // thousands of entries once "Debug detail" is on, and mixing in every
-    // other screen's activity would make finding the relevant lines here
-    // much harder, not easier.
-    val relevant = entries.filter { it.tag == "Adb" && (showDebug || it.level != com.siroha.flashtool.data.LogLevel.DEBUG) }.takeLast(300)
-    if (relevant.isEmpty()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalArrangement = Arrangement.Center) {
-            Text("No ADB activity yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    } else {
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                relevant.forEach { e ->
-                    Text(
-                        e.format(),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = when (e.level) {
-                            com.siroha.flashtool.data.LogLevel.ERROR -> MaterialTheme.colorScheme.error
-                            com.siroha.flashtool.data.LogLevel.WARN -> MaterialTheme.colorScheme.tertiary
-                            com.siroha.flashtool.data.LogLevel.DEBUG -> MaterialTheme.colorScheme.outline
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-            }
-        }
     }
 }

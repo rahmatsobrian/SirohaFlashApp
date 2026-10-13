@@ -134,7 +134,7 @@ fun BypassUblScreen(
                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
                                 Text(
-                                    "Simulates the output below without touching a real device, USB, or qdl.",
+                                    "Simulates the whole run without touching a real device, USB, or qdl.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
@@ -226,42 +226,13 @@ fun BypassUblScreen(
                                     val hadError = output.any { it.contains("[error]", ignoreCase = true) }
                                     snackbarHostState.currentSnackbarData?.dismiss()
                                     snackbarHostState.showSnackbar(
-                                        if (hadError) "Bypass UBL - failed (see output below)" else "Bypass UBL - finished (see output below)"
+                                        if (hadError) "Bypass UBL - failed (see Utilities > Logs)" else "Bypass UBL - finished (see Utilities > Logs)"
                                     )
                                 }
                             }
                         )
                     )
                 )
-            }
-
-            item { SectionHeading(Icons.Filled.Article, "Output", modifier = Modifier.padding(top = 4.dp)) }
-
-            item {
-                if (output.isEmpty()) {
-                    Text(
-                        "Output will appear here once you start.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            output.forEach { line ->
-                                Text(
-                                    line,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (line.contains("[error]", ignoreCase = true)) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         OperationOverlay(

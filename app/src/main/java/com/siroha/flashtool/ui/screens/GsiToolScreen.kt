@@ -59,7 +59,6 @@ fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepo
     val snackbarHostState = remember { SnackbarHostState() }
     val ops = fastbootOperations
     var busy by remember { mutableStateOf(false) }
-    val entries by logRepository.entries.collectAsState()
 
     val gsiPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -163,29 +162,6 @@ fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepo
             item {
                 SectionHeading(Icons.Filled.RocketLaunch, "Flash steps", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(steps)
-            }
-
-            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
-            item {
-                val recent = entries.takeLast(20)
-                if (recent.isEmpty()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalArrangement = Arrangement.Center) {
-                        Text("No activity yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            recent.forEach { e ->
-                                Text(
-                                    e.format(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         OperationOverlay(

@@ -54,7 +54,6 @@ fun FrpToolScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOper
     val adb = adbOperations
     var busy by remember { mutableStateOf(false) }
     var adbConnected by remember { mutableStateOf(adb.isConnected()) }
-    val entries by logRepository.entries.collectAsState()
 
     Scaffold(
         topBar = { SirohaTopBar("FRP Remove Tool", icon = Icons.Filled.Shield, onBack = onBack) },
@@ -147,29 +146,6 @@ fun FrpToolScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOper
                         )
                     )
                 )
-            }
-
-            item { SectionHeading(Icons.Filled.Info, "Recent activity") }
-            item {
-                val recent = entries.takeLast(20)
-                if (recent.isEmpty()) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalArrangement = Arrangement.Center) {
-                        Text("No activity yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            recent.forEach { e ->
-                                Text(
-                                    e.format(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         OperationOverlay(

@@ -281,7 +281,7 @@ fun QdlFlashScreen(
             val hadError = output.any { it.contains("[error]", ignoreCase = true) }
             snackbarHostState.currentSnackbarData?.dismiss()
             snackbarHostState.showSnackbar(
-                if (hadError) "QDL Flash - failed (see output below)" else "QDL Flash - finished (see output below)"
+                if (hadError) "QDL Flash - failed (see Utilities > Logs)" else "QDL Flash - finished (see Utilities > Logs)"
             )
         }
     }
@@ -529,41 +529,6 @@ fun QdlFlashScreen(
                         )
                     )
                 )
-            }
-
-            item { SectionHeading(Icons.Filled.Article, "Output", modifier = Modifier.padding(top = 4.dp, start = 4.dp)) }
-            item {
-                if (output.isEmpty()) {
-                    Text(
-                        "Output will appear here once you start.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    // Tambahkan Modifier.fillMaxWidth() di sini
-                    Card(
-                        modifier = Modifier.fillMaxWidth(), 
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp), // Tambahkan juga di Column agar aman
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            output.forEach { line ->
-                                Text(
-                                    line,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (line.contains("[error]", ignoreCase = true)) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
         OperationOverlay(

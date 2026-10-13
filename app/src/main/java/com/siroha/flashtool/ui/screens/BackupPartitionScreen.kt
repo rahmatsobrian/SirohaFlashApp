@@ -209,7 +209,6 @@ fun BackupPartitionScreen(
     var resultText by remember { mutableStateOf("") }
     var stopRequested by remember { mutableStateOf(false) }
     val stopFlag = remember { AtomicBoolean(false) }
-    val entries by logRepository.entries.collectAsState()
     val connected = source != null
 
     suspend fun loadPartitions() {
@@ -332,7 +331,7 @@ fun BackupPartitionScreen(
             if (source == BackupSource.ADB && reason?.contains("denied", ignoreCase = true) == true) {
                 needsRootHint.set(true)
             }
-            false to "FAILED  $name - ${reason ?: "refused or unsupported (see Recent activity)"}"
+            false to "FAILED  $name - ${reason ?: "refused or unsupported (see Utilities > Logs)"}"
         }
     }
 
@@ -644,35 +643,6 @@ fun BackupPartitionScreen(
                     }
                 }
                 item { Column(modifier = Modifier.height(12.dp)) {} }
-
-                sectionItem { SectionHeading(Icons.Filled.Info, "Recent activity", modifier = Modifier.padding(start = 4.dp)) }
-                item {
-                    val recent = entries.takeLast(12)
-                    if (recent.isEmpty()) {
-                        Text(
-                            "No activity yet.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    } else {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                recent.forEach { e ->
-                                    Text(
-                                        e.format(),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             OperationOverlay(

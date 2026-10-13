@@ -51,6 +51,12 @@ private val toolSections = listOf(
         )
     ),
     MenuSection(
+        "Terminal", Icons.Filled.Terminal,
+        listOf(
+            MenuEntry("Terminal", "fastboot, adb and adb shell typed like on a PC - attach files and use their names", Icons.Filled.Terminal, Routes.TERMINAL),
+        )
+    ),
+    MenuSection(
         "Xiaomi (MiTool)", Icons.Filled.Extension,
         listOf(
             MenuEntry("Mi Unlock", "Log in, then unlock the bootloader via Xiaomi's account API", Icons.Filled.LockOpen, Routes.MIUNLOCK),

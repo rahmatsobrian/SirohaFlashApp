@@ -80,14 +80,14 @@ class FlashOperations(
         val qdl = BinaryManager.qdlPath(context)
         if (qdl == null) {
             log.error(TAG, "qdl binary not found for this device's ABI (${android.os.Build.SUPPORTED_ABIS.joinToString()})")
-            emit("[error] qdl binary missing for this ABI")
+            say("[error] qdl binary missing for this ABI")
             return@flow
         }
         log.debug(TAG, "No-root bridge: resolved qdl=$qdl for ABI ${android.os.Build.SUPPORTED_ABIS.firstOrNull()} (supported: ${android.os.Build.SUPPORTED_ABIS.joinToString()})")
         val stagingDir = BinaryManager.stageNoRootLibs(context)
         if (stagingDir == null) {
             log.error(TAG, "No-root USB bridge libraries aren't bundled for this ABI (${android.os.Build.SUPPORTED_ABIS.joinToString()}) — only arm64-v8a is currently supported.")
-            emit("[error] No-root USB bridge isn't available on this device's ABI")
+            say("[error] No-root USB bridge isn't available on this device's ABI")
             return@flow
         }
         val stagedFiles = stagingDir.listFiles().orEmpty()
@@ -144,13 +144,13 @@ class FlashOperations(
                 val device = UsbDeviceHelper.listDevices(context).firstOrNull { UsbDeviceHelper.isEdlDevice(it) }
                 if (device == null) {
                     log.warn(TAG, "No EDL (9008) device detected.")
-                    emit("[error] No EDL (9008) device detected — connect the device in EDL mode first.")
+                    say("[error] No EDL (9008) device detected — connect the device in EDL mode first.")
                     return@flow
                 }
                 log.info(TAG, "Requesting USB permission for ${device.deviceName} (EDL 9008)...")
                 log.debug(TAG, "EDL device: name=${device.deviceName} vendorId=${device.vendorId} productId=${device.productId}")
                 if (!UsbDeviceHelper.requestPermission(context, device)) {
-                    emit("[error] USB permission denied for the EDL device.")
+                    say("[error] USB permission denied for the EDL device.")
                     return@flow
                 }
                 coroutineScope {
@@ -158,15 +158,15 @@ class FlashOperations(
                     bridge = server
                     val bridgeStartedAt = System.currentTimeMillis()
                     if (!server.start(this, device)) {
-                        emit("[error] Could not start the USB bridge (see log for the exact reason: device open failure or the abstract socket was already taken).")
+                        say("[error] Could not start the USB bridge (see log for the exact reason: device open failure or the abstract socket was already taken).")
                         return@coroutineScope
                     }
                     log.debug(TAG, "USB bridge started in ${System.currentTimeMillis() - bridgeStartedAt}ms")
-                    emit("USB bridge is up — starting qdl unprivileged (no root, no Shizuku)...")
+                    say("USB bridge is up — starting qdl unprivileged (no root, no Shizuku)...")
                     runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { progressTracker.onLine(it); emit(it) }
                 }
             } else {
-                emit("[DRY RUN] Skipping EDL device + USB bridge — running qdl --dry-run unprivileged to confirm it launches against the staged libusb.so build.")
+                say("[DRY RUN] Skipping EDL device + USB bridge — running qdl --dry-run unprivileged to confirm it launches against the staged libusb.so build.")
                 runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { progressTracker.onLine(it); emit(it) }
             }
         } finally {
@@ -174,6 +174,16 @@ class FlashOperations(
         }
         log.success(TAG, "No-root QDL run finished in ${System.currentTimeMillis() - startedAt}ms (verify exit status in log)")
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Emits a line to the screen's collector AND records it in the app log, so the on-screen
+     * "Output" panel can live in Utilities > Logs instead of taking space in every menu.
+     * (qdl's own output is already logged line by line, so it isn't routed through here.)
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.say(text: String) {
+        if (text.startsWith("[error]")) log.error(TAG, text.removePrefix("[error]").trim()) else log.info(TAG, text)
+        emit(text)
+    }
 
     /** Shared "actually spawn qdl as a plain subprocess" step for [runQdlNoRootBridge], both the real and dry-run branches.
      *  LD_LIBRARY_PATH lists [ldLibraryPathDir] (the staged libusb.so / libusb_bridge.so / libxml2.so.16) first, then
@@ -326,7 +336,7 @@ class FlashOperations(
 
         if (!loader.exists() || !rawprogram.exists() || !patch.exists()) {
             log.error(TAG, "Missing bypass-UBL assets in ${dir.absolutePath}")
-            emit("[error] bypass-UBL assets missing")
+            say("[error] bypass-UBL assets missing")
             return@flow
         }
         log.debug(TAG, "bypass-UBL assets: ${loader.name} (${loader.length()}B), ${rawprogram.name} (${rawprogram.length()}B), ${patch.name} (${patch.length()}B) in ${dir.absolutePath}")
@@ -365,33 +375,33 @@ class FlashOperations(
 
         if (!loader.exists() || !rawprogram.exists() || !patch.exists()) {
             log.error(TAG, "[DRY RUN] Missing bypass-UBL assets in ${dir.absolutePath}")
-            emit("[error] bypass-UBL assets missing")
+            say("[error] bypass-UBL assets missing")
             return@flow
         }
 
-        emit("[DRY RUN] Simulated only — no real device or qdl binary is used below.")
+        say("[DRY RUN] Simulated only — no real device or qdl binary is used below.")
         delay(300)
         OperationStatus.reportFraction(0.05f, "Waiting for the EDL (9008) device...")
-        emit("Waiting for EDL (9008) device...")
+        say("Waiting for EDL (9008) device...")
         delay(500)
         OperationStatus.reportFraction(0.2f, "Uploading the firehose loader...")
-        emit("Firehose loader uploaded: ${loader.name}")
+        say("Firehose loader uploaded: ${loader.name}")
         delay(500)
         OperationStatus.reportFraction(0.3f, "Firehose handshake")
-        emit("Firehose handshake OK")
+        say("Firehose handshake OK")
         delay(500)
         OperationStatus.reportFraction(0.4f, "Flashing partitions...")
-        emit("Flashing partitions from ${rawprogram.name}...")
+        say("Flashing partitions from ${rawprogram.name}...")
         delay(600)
         OperationStatus.reportFraction(0.6f, "Flashed fastboot  (1/2)")
-        emit("Flashed partition: fastboot")
+        say("Flashed partition: fastboot")
         delay(400)
         OperationStatus.reportFraction(0.8f, "Flashed partition  (2/2)")
-        emit("Flashed partition: partition")
+        say("Flashed partition: partition")
         delay(400)
         if (simulateFailure) {
             log.error(TAG, "[DRY RUN] Simulated a failure outcome on request.")
-            emit("[error] Simulated failure: ${patch.name} verification failed (dry run)")
+            say("[error] Simulated failure: ${patch.name} verification failed (dry run)")
             return@flow
         }
         emit("Applying ${patch.name}...")
