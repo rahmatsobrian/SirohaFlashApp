@@ -31,22 +31,39 @@ object SafFiles {
         val outDir = File(safeCacheDir, "qdl_inputs").apply { mkdirs() }
         val outFile = File(outDir, suggestedName)
 
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "Could not open $uri" }
-            outFile.outputStream().use { output ->
-                if (onProgress == null) {
-                    input.copyTo(output)
-                } else {
-                    val buffer = ByteArray(256 * 1024)
-                    var copied = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        copied += read
-                        onProgress(copied)
+        // Big images take a while to copy: show it on the progress overlay as the first slice of
+        // the step (the USB transfer that follows gets the rest). Small files aren't worth a flicker.
+        val size = querySize(context, uri)
+        val track = size != null && size >= 8L shl 20
+        val previousStage = if (track) OperationStatus.stage.value else null
+        if (track) {
+            OperationStatus.setStage("Copying $suggestedName to cache")
+            OperationStatus.setPhase(0f, 0.15f)
+        }
+        try {
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Could not open $uri" }
+                outFile.outputStream().use { output ->
+                    if (onProgress == null && !track) {
+                        input.copyTo(output)
+                    } else {
+                        val buffer = ByteArray(256 * 1024)
+                        var copied = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            copied += read
+                            onProgress?.invoke(copied)
+                            if (track) OperationStatus.reportProgress(copied, size!!)
+                        }
                     }
                 }
+            }
+        } finally {
+            if (track) {
+                OperationStatus.setPhase(0.15f, 1f)
+                OperationStatus.setStage(previousStage)
             }
         }
 
@@ -72,6 +89,16 @@ object SafFiles {
         withContext(Dispatchers.IO) {
             runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
         }
+
+    /** Size in bytes the provider reports for [uri], or null when it won't say. */
+    private fun querySize(context: Context, uri: Uri): Long? = runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (idx >= 0 && !cursor.isNull(idx)) cursor.getLong(idx) else null
+            } else null
+        }
+    }.getOrNull()
 
     /** Best-effort display name for [uri] (falls back to [fallback] if the provider won't say). */
     fun displayName(context: Context, uri: Uri, fallback: String): String {

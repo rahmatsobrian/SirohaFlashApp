@@ -261,6 +261,13 @@ class AdbOperations(
             )
             res = c.execToStream("cat $path", out, progress)
         }
+        // A normal (non-root) Android shell can't read block devices. On a rooted device `su` can,
+        // so give that a try before reporting the failure. Nothing has been written yet, so it's safe.
+        if (res.error == null && res.bytes == 0L && res.stderr.contains("denied", ignoreCase = true)) {
+            log.warn(TAG, "Permission denied for the ADB shell - trying again through su (needs a rooted device)")
+            val viaSu = c.execToStream("su -c \"dd if=$path bs=1048576\"", out, progress)
+            if (viaSu.error == null && viaSu.bytes > 0) res = viaSu
+        }
         var failure: String? = when {
             res.error != null -> res.error
             res.exitCode != null && res.exitCode != 0 ->

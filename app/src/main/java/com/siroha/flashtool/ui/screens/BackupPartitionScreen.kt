@@ -1,5 +1,7 @@
 package com.siroha.flashtool.ui.screens
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.size
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -276,6 +278,8 @@ fun BackupPartitionScreen(
 
     // Set when a fastboot backup fails because the bootloader has no `fetch` (an AtomicBoolean so it survives recomposition).
     val noFetchSupport = remember { AtomicBoolean(false) }
+    // Set when an ADB backup is refused with 'Permission denied': the shell isn't root.
+    val needsRootHint = remember { AtomicBoolean(false) }
 
     suspend fun backupOne(parent: Uri, name: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         var created: Uri? = null
@@ -325,6 +329,9 @@ fun BackupPartitionScreen(
             if (source == BackupSource.FASTBOOT && reason?.contains("unknown command", ignoreCase = true) == true) {
                 noFetchSupport.set(true)
             }
+            if (source == BackupSource.ADB && reason?.contains("denied", ignoreCase = true) == true) {
+                needsRootHint.set(true)
+            }
             false to "FAILED  $name - ${reason ?: "refused or unsupported (see Recent activity)"}"
         }
     }
@@ -335,6 +342,7 @@ fun BackupPartitionScreen(
             stopFlag.set(false)
             stopRequested = false
             noFetchSupport.set(false)
+            needsRootHint.set(false)
             resultText = ""
             val lines = mutableListOf<String>()
             var okCount = 0
@@ -342,12 +350,13 @@ fun BackupPartitionScreen(
                 val parent = DocumentsContract.buildDocumentUriUsingTree(
                     treeUri, DocumentsContract.getTreeDocumentId(treeUri)
                 )
+                OperationStatus.begin(if (names.size == 1) "Backing up ${names[0]}" else "Backing up ${names.size} partitions")
                 for ((index, name) in names.withIndex()) {
                     if (stopFlag.get()) {
                         lines += "Stopped - ${names.size - index} partition(s) not backed up"
                         break
                     }
-                    OperationStatus.begin("Backup (${index + 1}/${names.size}) $name")
+                    OperationStatus.reportSteps(index, names.size, "$name  (${index + 1}/${names.size})")
                     val (ok, line) = backupOne(parent, name)
                     if (ok) okCount++
                     lines += line
@@ -357,10 +366,14 @@ fun BackupPartitionScreen(
                 busy = false
                 stopRequested = false
             }
+            if (needsRootHint.get()) {
+                lines += ""
+                lines += "The ADB shell isn't allowed to read the partitions. Use TWRP, or on a rooted phone grant root to the ADB shell (Magisk > Superuser > Shell) or enable adb root, then try again."
+            }
             if (noFetchSupport.get()) {
                 lines += ""
                 lines += "This bootloader has no 'fetch' command, so it can't dump partitions itself (being unlocked doesn't change that)."
-                lines += "Workaround: Fastboot > Boot TWRP image (runs from RAM, writes nothing). When TWRP is up, this screen switches to ADB mode and can read the partitions."
+                lines += "Fastboot can't dump partitions here. Use Fastboot > Boot TWRP image (runs from RAM, writes nothing); when TWRP is up, this screen switches to ADB mode and can read them."
             }
             resultText = lines.joinToString("\n") + "\n\n$okCount of ${names.size} backed up"
             snackbarHostState.showSnackbar(
@@ -514,15 +527,37 @@ fun BackupPartitionScreen(
                             modifier = Modifier.padding(start = 4.dp, top = 6.dp)
                         )
                     }
-                    Text(
-                        when (source) {
-                            BackupSource.ADB -> "ADB mode: partitions are read from /dev/block with a root shell - this works in a recovery such as TWRP or on a rooted device."
-                            else -> "Fastboot mode uses the \"fetch\" command, which many bootloaders don't have. If a backup says unknown command, boot TWRP from the Fastboot menu and come back - this screen switches to ADB mode by itself."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, top = 6.dp)
-                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    "Before you back up",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                "Reading a partition needs root-level access to the target phone, so backup only works when:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                "1. The phone is in TWRP (or another recovery) with ADB - ADB there already runs as root.\n" +
+                                    "2. The phone is in normal Android with USB debugging, it is rooted, and root access is granted to " +
+                                    "the ADB shell (e.g. Magisk > Superuser > Shell), or adb root is enabled (userdebug / custom ROM).",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                "It does not work in fastboot mode (most bootloaders can't read partitions), and it does not work " +
+                                    "from a non-rooted system - the ADB shell is denied access to /dev/block there.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
                 }
 
                 if (partitions.isNotEmpty()) {

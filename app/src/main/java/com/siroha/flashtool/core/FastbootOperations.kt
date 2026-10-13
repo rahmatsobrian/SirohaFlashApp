@@ -117,6 +117,8 @@ class FastbootOperations(
     suspend fun flashPartition(partition: String, file: File): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
         log.info(TAG, "Flashing $partition from ${file.name} (${file.length()} bytes)...")
+        // Flows made of several steps set their own "Flashing x (3/12)" line; only fill it in when nobody did.
+        if (OperationStatus.stage.value == null) OperationStatus.setStage("Flashing $partition")
         val result = c.flashPartition(
             partition = partition,
             file = file,
@@ -211,6 +213,7 @@ class FastbootOperations(
     suspend fun boot(file: File): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
         log.info(TAG, "Booting ${file.name} without flashing (temporary boot, e.g. TWRP)...")
+        if (OperationStatus.stage.value == null) OperationStatus.setStage("Sending ${file.name} to the device")
         val result = c.downloadThen(
             file = file,
             finalCommand = "boot",

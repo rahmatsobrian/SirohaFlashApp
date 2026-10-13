@@ -113,6 +113,9 @@ class FlashOperations(
             rawprogramPaths
         }
 
+        // qdl has no percentage of its own: progress is derived from the partitions it reports as flashed.
+        val progressTracker = QdlProgressTracker.fromFiles(effectiveRawprogram)
+
         val argv = buildList {
             add(qdl)
             if (dryRun) add("--dry-run")
@@ -160,11 +163,11 @@ class FlashOperations(
                     }
                     log.debug(TAG, "USB bridge started in ${System.currentTimeMillis() - bridgeStartedAt}ms")
                     emit("USB bridge is up — starting qdl unprivileged (no root, no Shizuku)...")
-                    runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { emit(it) }
+                    runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { progressTracker.onLine(it); emit(it) }
                 }
             } else {
                 emit("[DRY RUN] Skipping EDL device + USB bridge — running qdl --dry-run unprivileged to confirm it launches against the staged libusb.so build.")
-                runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { emit(it) }
+                runQdlProcessNoRoot(argv, stagingDir, debugLog).collect { progressTracker.onLine(it); emit(it) }
             }
         } finally {
             bridge?.stop()
@@ -368,16 +371,22 @@ class FlashOperations(
 
         emit("[DRY RUN] Simulated only — no real device or qdl binary is used below.")
         delay(300)
+        OperationStatus.reportFraction(0.05f, "Waiting for the EDL (9008) device...")
         emit("Waiting for EDL (9008) device...")
         delay(500)
+        OperationStatus.reportFraction(0.2f, "Uploading the firehose loader...")
         emit("Firehose loader uploaded: ${loader.name}")
         delay(500)
+        OperationStatus.reportFraction(0.3f, "Firehose handshake")
         emit("Firehose handshake OK")
         delay(500)
+        OperationStatus.reportFraction(0.4f, "Flashing partitions...")
         emit("Flashing partitions from ${rawprogram.name}...")
         delay(600)
+        OperationStatus.reportFraction(0.6f, "Flashed fastboot  (1/2)")
         emit("Flashed partition: fastboot")
         delay(400)
+        OperationStatus.reportFraction(0.8f, "Flashed partition  (2/2)")
         emit("Flashed partition: partition")
         delay(400)
         if (simulateFailure) {

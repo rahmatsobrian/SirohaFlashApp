@@ -106,6 +106,7 @@ class MiUnlockOperations(
         val deviceId = accountSession?.deviceId ?: return@withContext MiUnlockResult.Failed("No account session")
         val pcId = MiUnlockApi.pcIdFor(deviceId)
 
+        OperationStatus.reportSteps(0, 4, "Requesting unlock authorization")
         log.info(TAG, "Requesting unlock authorization...")
         val ahaResponse = MiUnlockApi.send(
             session.host, "/api/v3/ahaUnlock", listOf("appId", "data", "nonce", "sid"),
@@ -142,14 +143,17 @@ class MiUnlockOperations(
             return@withContext MiUnlockResult.Failed("No encryptData in server response")
         }
 
+        OperationStatus.reportSteps(1, 4, "Preparing the authorization data")
         val encryptFile = File(context.filesDir, "miunlock_encryptData")
         encryptFile.writeBytes(MiUnlockApi.hexStringToByteArray(encryptDataHex))
 
+        OperationStatus.reportSteps(2, 4, "Sending the authorization to the device")
         log.info(TAG, "Staging encryptData to the device...")
         if (!fastboot.stageFile(encryptFile)) {
             return@withContext MiUnlockResult.Failed("Failed to stage encryptData over USB")
         }
 
+        OperationStatus.reportSteps(3, 4, "Unlocking - do not disconnect the phone")
         log.info(TAG, "Sending oem unlock...")
         val unlockOk = fastboot.rawCommand("oem unlock")
         encryptFile.delete()

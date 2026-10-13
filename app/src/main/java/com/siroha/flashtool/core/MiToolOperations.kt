@@ -213,7 +213,16 @@ class MiToolOperations(
         val imagesByPartition = images.associateBy { it.partitionName }
         var allOk = true
 
-        for (op in buildOrderedOps(plan)) {
+        val orderedOps = buildOrderedOps(plan)
+        for ((opIndex, op) in orderedOps.withIndex()) {
+            val opName = when (op) {
+                is PlanOp.Flash -> op.partitionName
+                is PlanOp.Erase -> op.partitionName
+            }
+            OperationStatus.reportSteps(
+                opIndex, orderedOps.size,
+                (if (op is PlanOp.Flash) "Flashing" else "Erasing") + " $opName  (${opIndex + 1}/${orderedOps.size})"
+            )
             val ok = when (op) {
                 is PlanOp.Flash -> {
                     val image = imagesByPartition[op.partitionName]
@@ -230,6 +239,7 @@ class MiToolOperations(
             if (!ok) allOk = false
         }
 
+        OperationStatus.reportSteps(orderedOps.size, orderedOps.size, "Finishing up")
         if (plan.locksBootloaderAfter) {
             if (allOk) {
                 log.warn(TAG, "Locking bootloader (oem lock)...")
@@ -281,6 +291,8 @@ class MiToolOperations(
             val total = connection.contentLengthLong
             var downloaded = 0L
             var lastLoggedPercent = -1
+            OperationStatus.setStage("Downloading the ROM ZIP")
+            OperationStatus.setPhase(0f, 0.85f)
             connection.inputStream.use { input ->
                 downloadFile.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
@@ -289,6 +301,7 @@ class MiToolOperations(
                         if (read <= 0) break
                         output.write(buffer, 0, read)
                         downloaded += read
+                        if (total > 0) OperationStatus.reportProgress(downloaded, total)
                         if (total > 0) {
                             val percent = ((downloaded * 100) / total).toInt()
                             if (percent != lastLoggedPercent && percent % 10 == 0) {
@@ -301,13 +314,26 @@ class MiToolOperations(
             }
             log.success(TAG, "Downloaded ${downloaded} bytes, extracting '$entryName'...")
 
+            OperationStatus.setStage("Extracting $entryName")
+            OperationStatus.setPhase(0.85f, 1f)
             val outputDir = File(context.filesDir, "mitool_extracted").apply { mkdirs() }
             val outputFile = File(outputDir, entryName.substringAfterLast('/'))
             ZipInputStream(downloadFile.inputStream()).use { zip ->
                 var entry = zip.nextEntry
                 while (entry != null) {
                     if (entry.name == entryName || entry.name.endsWith("/$entryName")) {
-                        outputFile.outputStream().use { out -> zip.copyTo(out) }
+                        val entrySize = entry.size
+                        outputFile.outputStream().use { out ->
+                            val buffer = ByteArray(256 * 1024)
+                            var copied = 0L
+                            while (true) {
+                                val read = zip.read(buffer)
+                                if (read < 0) break
+                                out.write(buffer, 0, read)
+                                copied += read
+                                if (entrySize > 0) OperationStatus.reportProgress(copied, entrySize)
+                            }
+                        }
                         log.success(TAG, "Extracted to ${outputFile.absolutePath}")
                         return@withContext outputFile
                     }

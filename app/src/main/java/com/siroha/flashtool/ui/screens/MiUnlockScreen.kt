@@ -1,5 +1,9 @@
 package com.siroha.flashtool.ui.screens
 
+import com.siroha.flashtool.core.OperationStatus
+import com.siroha.flashtool.ui.components.OperationOverlay
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.webkit.CookieManager
@@ -106,12 +110,11 @@ fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         topBar = { SirohaTopBar("Mi Unlock", icon = Icons.Filled.LockOpen, onBack = onBack) },
         snackbarHost = { DismissibleSnackbarHost(snackbarHostState) }
     ) { padding ->
-        // GANTI LazyColumn menjadi Column biasa
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp), // Terapkan padding langsung di Modifier
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             when (val s = step) {
@@ -181,10 +184,16 @@ fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                                                 if (!passToken.isNullOrEmpty() && !deviceId.isNullOrEmpty() && !uid.isNullOrEmpty()) {
                                                     userId = uid
                                                     step = UnlockStep.ResolvingSession
+                                                    OperationStatus.begin("Mi Unlock - signing in")
+                                                    OperationStatus.setStage("Resolving your account session")
                                                     scope.launch {
-                                                        val ok = miUnlock.resolveServerSession(
-                                                            MiUnlockApi.AccountSession(passToken, deviceId, uid)
-                                                        )
+                                                        val ok = try {
+                                                            miUnlock.resolveServerSession(
+                                                                MiUnlockApi.AccountSession(passToken, deviceId, uid)
+                                                            )
+                                                        } finally {
+                                                            OperationStatus.end()
+                                                        }
                                                         step = if (ok) UnlockStep.ConnectDevice else UnlockStep.Done(MiUnlockResult.Failed("Could not resolve account session"))
                                                     }
                                                 } else {
@@ -245,17 +254,24 @@ fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                                 onClick = {
                                     scope.launch {
                                         step = UnlockStep.Checking
+                                        OperationStatus.begin("Mi Unlock - checking the device")
+                                        OperationStatus.reportSteps(0, 3, "Connecting over USB")
                                         val connected = fastboot.connect()
                                         if (!connected) {
+                                            OperationStatus.end()
                                             step = UnlockStep.Done(MiUnlockResult.Failed("Could not connect to the device in fastboot mode"))
                                             return@launch
                                         }
+                                        OperationStatus.reportSteps(1, 3, "Reading device info")
                                         val infoOk = miUnlock.readDeviceInfo()
                                         if (!infoOk) {
+                                            OperationStatus.end()
                                             step = UnlockStep.Done(MiUnlockResult.Failed("Could not read device info"))
                                             return@launch
                                         }
+                                        OperationStatus.reportSteps(2, 3, "Checking unlock eligibility")
                                         val clearInfo = miUnlock.checkClearStatus()
+                                        OperationStatus.end()
                                         step = if (clearInfo != null) UnlockStep.Confirm(clearInfo) else UnlockStep.Done(MiUnlockResult.Failed("Could not check unlock eligibility"))
                                     }
                                 }
@@ -286,7 +302,13 @@ fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                                 onClick = {
                                     scope.launch {
                                         step = UnlockStep.Unlocking
-                                        step = UnlockStep.Done(miUnlock.performUnlock(userId))
+                                        OperationStatus.begin("Mi Unlock - unlocking the bootloader")
+                                        val unlockResult = try {
+                                            miUnlock.performUnlock(userId)
+                                        } finally {
+                                            OperationStatus.end()
+                                        }
+                                        step = UnlockStep.Done(unlockResult)
                                     }
                                 }
                             )
@@ -308,6 +330,12 @@ fun MiUnlockScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                     )
                 }
             }
+        }
+        OperationOverlay(
+            busy = step is UnlockStep.ResolvingSession || step is UnlockStep.Checking || step is UnlockStep.Unlocking,
+            logRepository = logRepository,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
         }
     }
 }
