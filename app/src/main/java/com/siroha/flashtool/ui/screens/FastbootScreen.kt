@@ -575,6 +575,25 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
             }
 
             item {
+                SectionHeading(Icons.Filled.CloudUpload, "ADB sideload", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (sideloadRunning) "Sideloading ${sideloadName ?: "..."}" else "Sideload ZIP",
+                            subtitle = if (sideloadRunning) {
+                                "In progress - details are in Utilities > Logs"
+                            } else {
+                                "Connects to the ADB device by itself. Recovery must be in ADB sideload mode; the ZIP is read in place (All files access) when possible"
+                            },
+                            icon = Icons.Filled.CloudUpload,
+                            enabled = !busy,
+                            onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+                        )
+                    )
+                )
+            }
+
+            item {
                 SectionHeading(Icons.Filled.Bolt, "Flash partition", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     flashablePartitions.map { p ->
@@ -1002,24 +1021,6 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
 
             }
 
-            item {
-                SectionHeading(Icons.Filled.CloudUpload, "ADB sideload", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    listOf(
-                        ActionEntry(
-                            title = if (sideloadRunning) "Sideloading ${sideloadName ?: "..."}" else "Sideload ZIP",
-                            subtitle = if (sideloadRunning) {
-                                "In progress - details are in Utilities > Logs"
-                            } else {
-                                "Connects to the ADB device by itself. Recovery must be in ADB sideload mode; the ZIP is read in place (All files access) when possible"
-                            },
-                            icon = Icons.Filled.CloudUpload,
-                            enabled = !busy,
-                            onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
-                        )
-                    )
-                )
-            }
 
         }
         // Floating progress + live log while an action runs, so it's visible without scrolling down.
