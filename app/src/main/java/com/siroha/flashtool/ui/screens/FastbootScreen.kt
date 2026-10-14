@@ -804,7 +804,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                     )
                 )
                 Text(
-                    "Images larger than the device's max download size are refused up front - automatic sparse splitting isn't supported yet.",
+                    "Images larger than the device's max download size are split into sparse parts automatically.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, top = 6.dp)

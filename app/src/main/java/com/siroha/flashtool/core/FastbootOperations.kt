@@ -119,6 +119,13 @@ class FastbootOperations(
         log.info(TAG, "Flashing $partition from ${file.name} (${file.length()} bytes)...")
         // Flows made of several steps set their own "Flashing x (3/12)" line; only fill it in when nobody did.
         if (OperationStatus.stage.value == null) OperationStatus.setStage("Flashing $partition")
+
+        // Bigger than the bootloader accepts in one download: split into sparse parts, like PC fastboot does.
+        val max = queryVar(c, "max-download-size")?.let { parseHexSize(it) }
+        if (max != null && max > 0 && file.length() > max) {
+            return@withContext flashInSparseParts(c, partition, file, max)
+        }
+
         val result = c.flashPartition(
             partition = partition,
             file = file,
@@ -129,6 +136,42 @@ class FastbootOperations(
             }
         )
         handleResult(result, "flash $partition")
+    }
+
+    /**
+     * `download` + `flash` once per sparse part. Each part is generated while it is sent (no temp
+     * files), and the bootloader stitches the parts together, exactly as with the desktop tool.
+     */
+    private fun flashInSparseParts(c: FastbootUsbClient, partition: String, file: File, max: Long): Boolean {
+        val plan = try {
+            SparseImage.plan(file, max)
+        } catch (e: Exception) {
+            log.error(TAG, "flash $partition: ${file.name} is ${formatBytes(file.length())} but the device accepts at most ${formatBytes(max)} per download, and it can't be split: ${e.message}")
+            return false
+        }
+        val parts = plan.pieces.size
+        val total = plan.pieces.sumOf { it.size }
+        log.info(
+            TAG,
+            "${file.name} is ${formatBytes(file.length())} but the device accepts at most ${formatBytes(max)} per download - sending it as $parts sparse part(s)."
+        )
+        var done = 0L
+        for ((i, piece) in plan.pieces.withIndex()) {
+            val label = "part ${i + 1}/$parts"
+            log.info(TAG, "  $partition: $label (${formatBytes(piece.size)})")
+            val base = done
+            val dl = c.downloadStream(
+                size = piece.size,
+                onProgress = { sent, _ -> OperationStatus.reportProgress(base + sent, total) }
+            ) { out -> SparseImage.writePiece(plan, piece, out) }
+            if (dl !is FastbootUsbClient.FastbootResponse.Okay) return handleResult(dl, "flash $partition ($label, download)")
+            val fl = c.command("flash:$partition", onInfo = { log.info(TAG, it) })
+            if (fl !is FastbootUsbClient.FastbootResponse.Okay) return handleResult(fl, "flash $partition ($label)")
+            done += piece.size
+        }
+        log.info(TAG, "  $partition: transferred $total bytes in $parts part(s)")
+        log.success(TAG, "flash $partition: OK")
+        return true
     }
 
     /** Mirrors flash_partition() in flash.sh: flashes an image, then offers to flash vbmeta too. */
@@ -518,24 +561,11 @@ class FastbootOperations(
     }
 
     /**
-     * Same as [flashPartition], but first compares the file against the
-     * device's max-download-size and stops early with a clear message
-     * instead of letting the bootloader reject it halfway. The desktop
-     * `fastboot` tool silently splits big images into sparse chunks; this
-     * app does not do that yet, so oversized images have to be pre-split.
+     * Kept for the terminal and the Flash partition screen. [flashPartition] now splits images
+     * that are larger than the device's max-download-size into sparse parts by itself, so this
+     * is the same call.
      */
-    suspend fun flashPartitionChecked(partition: String, file: File): Boolean {
-        val max = getMaxDownloadSize()
-        if (max != null && max > 0 && file.length() > max) {
-            log.error(
-                TAG,
-                "${file.name} is ${formatBytes(file.length())} but this device accepts at most ${formatBytes(max)} per download. " +
-                    "Use a sparse/split image — automatic splitting isn't supported in this app yet."
-            )
-            return false
-        }
-        return flashPartition(partition, file)
-    }
+    suspend fun flashPartitionChecked(partition: String, file: File): Boolean = flashPartition(partition, file)
 
     // ------------------------------------------------------------------
     // Terminal with an attached file

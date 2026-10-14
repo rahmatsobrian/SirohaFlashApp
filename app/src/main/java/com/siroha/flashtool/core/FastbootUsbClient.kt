@@ -227,6 +227,58 @@ class FastbootUsbClient(
         return readUntilTerminal(onInfo)
     }
 
+    /**
+     * Like [download], but the payload is produced on the fly by [producer] (which must write
+     * exactly [size] bytes into the stream it is given) instead of being read from one file.
+     * Used for sparse-image parts that are generated while they are sent.
+     */
+    fun downloadStream(
+        size: Long,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+        producer: (java.io.OutputStream) -> Unit
+    ): FastbootResponse {
+        val conn = connection ?: return FastbootResponse.Error("device not open")
+        val out = epOut ?: return FastbootResponse.Error("no OUT endpoint")
+        val cmdBytes = "download:%08x".format(size).toByteArray(StandardCharsets.US_ASCII)
+        if (conn.bulkTransfer(out, cmdBytes, cmdBytes.size, BULK_TIMEOUT_MS) < 0) {
+            return FastbootResponse.Error("write failed for download:")
+        }
+        val header = readRawPacket() ?: return FastbootResponse.Error("no response to download:")
+        val tag = String(header, 0, 4, StandardCharsets.US_ASCII)
+        if (tag != "DATA") {
+            return if (tag == "FAIL") {
+                FastbootResponse.Fail(String(header, 4, header.size - 4, StandardCharsets.US_ASCII))
+            } else {
+                FastbootResponse.Error("expected DATA, got '$tag'")
+            }
+        }
+
+        var sent = 0L
+        val sink = object : java.io.OutputStream() {
+            override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                var o = off
+                var left = len
+                while (left > 0) {
+                    val n = minOf(left, MAX_CHUNK)
+                    val w = conn.bulkTransfer(out, b, o, n, BULK_TIMEOUT_MS)
+                    if (w <= 0) throw java.io.IOException("payload write failed at offset $sent")
+                    o += w
+                    left -= w
+                    sent += w
+                    onProgress(sent, size)
+                }
+            }
+        }
+        try {
+            producer(sink)
+        } catch (e: java.io.IOException) {
+            return FastbootResponse.Error(e.message ?: "I/O error while sending")
+        }
+        if (sent != size) return FastbootResponse.Error("sent $sent of $size bytes")
+        return readUntilTerminal()
+    }
+
     /** Handles the DATA<size> handshake + raw payload write for download:. */
     private fun sendDownload(
         size: Long,

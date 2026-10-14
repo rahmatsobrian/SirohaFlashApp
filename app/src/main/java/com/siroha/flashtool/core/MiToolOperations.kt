@@ -250,7 +250,13 @@ class MiToolOperations(
                 }
                 is PlanOp.Erase -> fastboot.erase(op.partitionName)
             }
-            if (!ok) allOk = false
+            if (!ok) {
+                allOk = false
+                // Xiaomi's flash_all*.sh does `if [ $? -ne 0 ]; then ... exit 1`, so stop here too
+                // instead of carrying on and flashing the remaining partitions of a half-flashed ROM.
+                log.error(TAG, "Stopped at '$opName' - ${plan.scriptName} exits on the first error as well.")
+                break
+            }
         }
 
         OperationStatus.reportSteps(orderedOps.size, orderedOps.size, "Finishing up")
