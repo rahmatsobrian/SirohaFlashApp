@@ -63,14 +63,14 @@ fun GsiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepo
     val gsiPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Flash GSI image", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "gsi_system.img")
+            val path = SafFiles.prepareFile(context, uri, "gsi_system.img")
             ops.flashPartition("system", File(path))
         }
     }
     val vbmetaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Flash VBMETA", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "vbmeta.img")
+            val path = SafFiles.prepareFile(context, uri, "vbmeta.img")
             ops.flashVbmeta(File(path), disableVerity = true)
         }
     }

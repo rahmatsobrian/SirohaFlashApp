@@ -52,7 +52,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -126,6 +130,11 @@ fun TerminalScreen(
     val scroll = rememberScrollState()
     var follow by remember { mutableStateOf(true) }
     val usbMode by rememberUsbModeInfo(adbState)
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val inputFocus = remember { FocusRequester() }
+    var inputFocused by remember { mutableStateOf(false) }
+    var refocusAfterPicker by remember { mutableStateOf(false) }
 
     // Only this screen needs the window to resize for the keyboard (imePadding below does the
     // rest). Without it the system pans the window AND imePadding lifts the content: a huge gap.
@@ -141,7 +150,7 @@ fun TerminalScreen(
         val activity = context.findActivity()
         val window = activity?.window
         val previous = window?.attributes?.softInputMode
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) applyResizeMode() }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) applyResizeMode() }
         (activity as? LifecycleOwner)?.lifecycle?.addObserver(observer)
         applyResizeMode()
         onDispose {
@@ -183,6 +192,7 @@ fun TerminalScreen(
     }
 
     val attachPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        applyResizeMode()
         if (uri != null) {
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -194,6 +204,30 @@ fun TerminalScreen(
             session.attach(name, uri, path)
             insertAtCursor(asShellWord(path))
         }
+    }
+
+    // The gap after attaching came from the keyboard being restored while the window was still
+    // coming back from the file picker: the system panned the window for the (then) hidden input,
+    // and imePadding lifted the content again on top of that. So the keyboard is closed BEFORE the
+    // picker opens and only brought back once the screen is resumed, settled and in resize mode.
+    fun openAttachPicker() {
+        if (running) return
+        refocusAfterPicker = inputFocused
+        applyResizeMode()
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        attachPicker.launch(arrayOf("*/*"))
+    }
+
+    LaunchedEffect(refocusAfterPicker) {
+        if (!refocusAfterPicker) return@LaunchedEffect
+        val owner = context.findActivity() as? LifecycleOwner
+        while (isActive && owner != null && !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) delay(50)
+        delay(350)
+        applyResizeMode()
+        runCatching { inputFocus.requestFocus() }
+        keyboard?.show()
+        refocusAfterPicker = false
     }
 
     fun submit() {
@@ -281,7 +315,7 @@ fun TerminalScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HapticIconButton(onClick = { if (!running) attachPicker.launch(arrayOf("*/*")) }) {
+                    HapticIconButton(onClick = { openAttachPicker() }) {
                         Icon(Icons.Filled.AttachFile, contentDescription = "Attach a file")
                     }
                     HapticIconButton(onClick = { historyUp() }) {
@@ -339,7 +373,11 @@ fun TerminalScreen(
                         modifier = Modifier
                             .weight(1f)
                             .padding(vertical = 14.dp)
-                            .onFocusChanged { if (it.isFocused) applyResizeMode() }
+                            .focusRequester(inputFocus)
+                            .onFocusChanged {
+                                inputFocused = it.isFocused
+                                if (it.isFocused) applyResizeMode()
+                            }
                     )
                     HapticIconButton(onClick = { submit() }) {
                         Icon(Icons.Filled.Send, contentDescription = "Run", tint = MaterialTheme.colorScheme.primary)

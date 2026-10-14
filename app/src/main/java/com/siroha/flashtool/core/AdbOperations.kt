@@ -387,6 +387,13 @@ class AdbOperations(
             return@withContext false
         }
         val name = SafFiles.displayName(context, uri, "sideload.zip")
+        // 1) All files access: sideload the file where it is.
+        val direct = SafFiles.resolveRealPath(context, uri)?.let { java.io.File(it) }?.takeIf { SafFiles.canReallyRead(it) }
+        if (direct != null) {
+            log.info(TAG, "Sideloading $name (${direct.length()} bytes) directly from ${direct.absolutePath} - no copy needed.")
+            return@withContext runSideload(c) { onProgress -> c.sideload(direct, onProgress = onProgress) }
+        }
+        // 2) seekable descriptor from the provider, 3) cache copy as the backup (below).
         val pfd = SafFiles.openSeekableFileDescriptor(context, uri)
         if (pfd != null) {
             val length = pfd.statSize

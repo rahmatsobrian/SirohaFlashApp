@@ -21,6 +21,7 @@ import com.siroha.flashtool.core.FontFamilyPreset
 import com.siroha.flashtool.core.FontWeightPreset
 import com.siroha.flashtool.core.PresetThemeId
 import com.siroha.flashtool.core.ThemeMode
+import com.siroha.flashtool.ui.components.AllFilesAccessPrompt
 import com.siroha.flashtool.ui.components.AppBackground
 import com.siroha.flashtool.ui.navigation.SirohaNavGraph
 import com.siroha.flashtool.ui.theme.LocalButtonIndicatorEnabled
@@ -123,6 +124,7 @@ class MainActivity : ComponentActivity() {
                                 fastbootOperations = app.fastbootOperations,
                                 adbOperations = app.adbOperations
                             )
+                            AllFilesAccessPrompt()
                         }
                     }
                 }

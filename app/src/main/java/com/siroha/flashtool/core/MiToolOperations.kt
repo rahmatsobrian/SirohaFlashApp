@@ -61,8 +61,22 @@ class MiToolOperations(
      * with many files) that running it on the caller's thread directly —
      * as this used to — visibly stutters the UI.
      */
+    /**
+     * The picked ROM folder as a [DocumentFile]. With All files access it is the real folder
+     * (plain File I/O: fast, and the images end up as direct paths); otherwise - or when that
+     * folder can't be listed - it falls back to the SAF tree grant, exactly like before.
+     */
+    private fun openRoot(treeUri: Uri): DocumentFile? {
+        SafFiles.readableDir(SafFiles.resolveTreePath(context, treeUri))?.let { dir ->
+            log.info(TAG, "Reading ROM folder directly from ${dir.absolutePath} (All files access)")
+            return DocumentFile.fromFile(dir)
+        }
+        log.debug(TAG, "No direct access to the ROM folder - using the folder grant (SAF)")
+        return DocumentFile.fromTreeUri(context, treeUri)
+    }
+
     suspend fun findFlashScripts(treeUri: Uri): List<DocumentFile> = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
+        val root = openRoot(treeUri) ?: return@withContext emptyList()
         root.listFiles()
             .filter { it.isFile && it.name?.let { n -> n.startsWith("flash_all") && n.endsWith(".sh") } == true }
             .sortedBy { it.name }
@@ -135,7 +149,7 @@ class MiToolOperations(
      * scripts on a ROM with many partition images.
      */
     suspend fun resolvePlanImages(treeUri: Uri, plan: FlashPlan): List<RomImage> = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
+        val root = openRoot(treeUri) ?: return@withContext emptyList()
         val imagesDir = root.listFiles().firstOrNull { it.isDirectory && it.name == "images" } ?: root
         val byName = imagesDir.listFiles().filter { it.isFile }.associateBy { it.name }
         plan.steps.map { step ->
@@ -230,7 +244,7 @@ class MiToolOperations(
                         log.error(TAG, "Missing image for partition '${op.partitionName}' — skipping.")
                         false
                     } else {
-                        val localPath = SafFiles.copyToCache(context, image.fileUri, "miflash_${op.partitionName}.img")
+                        val localPath = SafFiles.prepareFile(context, image.fileUri, "miflash_${op.partitionName}.img")
                         fastboot.flashPartition(op.partitionName, File(localPath))
                     }
                 }

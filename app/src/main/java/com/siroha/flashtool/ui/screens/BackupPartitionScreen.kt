@@ -80,7 +80,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.siroha.flashtool.core.SafFiles
 import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 private const val LARGE_BACKUP_BYTES = 1L shl 30
@@ -280,21 +284,54 @@ fun BackupPartitionScreen(
     // Set when an ADB backup is refused with 'Permission denied': the shell isn't root.
     val needsRootHint = remember { AtomicBoolean(false) }
 
-    suspend fun backupOne(parent: Uri, name: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        var created: Uri? = null
-        try {
-            created = DocumentsContract.createDocument(context.contentResolver, parent, "application/octet-stream", "$name.img")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // handled below: created stays null
+    suspend fun backupOne(parent: Uri, dir: File?, name: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        // 1) All files access: write the .img straight into the real folder.
+        var sink: OutputStream? = null
+        var cleanup: () -> Unit = {}
+        if (dir != null) {
+            val target = File(dir, "$name.img")
+            try {
+                sink = FileOutputStream(target)
+                cleanup = { runCatching { target.delete() } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                sink = null
+            }
         }
-        val doc = created ?: return@withContext false to "FAILED  $name - couldn't create the file in that folder"
+        // 2) Backup: create the document through the folder grant (SAF).
+        if (sink == null) {
+            var created: Uri? = null
+            try {
+                created = DocumentsContract.createDocument(context.contentResolver, parent, "application/octet-stream", "$name.img")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // handled below: created stays null
+            }
+            val doc = created ?: return@withContext false to "FAILED  $name - couldn't create the file in that folder"
+            sink = try {
+                context.contentResolver.openOutputStream(doc, "w")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            cleanup = {
+                try {
+                    DocumentsContract.deleteDocument(context.contentResolver, doc)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // best effort
+                }
+            }
+        }
 
         val expected = partitions.firstOrNull { it.name == name }?.sizeBytes
         var bytes = 0L
         val ok = try {
-            context.contentResolver.openOutputStream(doc, "w")?.use { raw ->
+            sink?.use { raw ->
                 val out = BufferedOutputStream(raw, 256 * 1024)
                 val done = when (source) {
                     BackupSource.FASTBOOT -> ops.fetchPartition(name, out) { d, _ -> bytes = d }
@@ -313,13 +350,7 @@ fun BackupPartitionScreen(
             true to "OK      $name (${fmtSize(bytes)})"
         } else {
             // Don't leave an empty/partial file behind.
-            try {
-                DocumentsContract.deleteDocument(context.contentResolver, doc)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // best effort
-            }
+            cleanup()
             val reason = when (source) {
                 BackupSource.FASTBOOT -> ops.lastFetchFailure
                 BackupSource.ADB -> adb.lastBackupFailure
@@ -349,6 +380,10 @@ fun BackupPartitionScreen(
                 val parent = DocumentsContract.buildDocumentUriUsingTree(
                     treeUri, DocumentsContract.getTreeDocumentId(treeUri)
                 )
+                // Real folder when the app may write there (All files access); the folder grant stays the backup.
+                val dir = withContext(Dispatchers.IO) {
+                    SafFiles.readableDir(SafFiles.resolveTreePath(context, treeUri))?.takeIf { SafFiles.canReallyWrite(it) }
+                }
                 OperationStatus.begin(if (names.size == 1) "Backing up ${names[0]}" else "Backing up ${names.size} partitions")
                 for ((index, name) in names.withIndex()) {
                     if (stopFlag.get()) {
@@ -356,7 +391,7 @@ fun BackupPartitionScreen(
                         break
                     }
                     OperationStatus.reportSteps(index, names.size, "$name  (${index + 1}/${names.size})")
-                    val (ok, line) = backupOne(parent, name)
+                    val (ok, line) = backupOne(parent, dir, name)
                     if (ok) okCount++
                     lines += line
                 }

@@ -276,7 +276,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         pendingFlash = null
         if (uri == null || target == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Flash ${target.label}", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "${target.partition}.img")
+            val path = SafFiles.prepareFile(context, uri, "${target.partition}.img")
             ops.flashPartitionChecked(target.partition, File(path))
         }
     }
@@ -284,7 +284,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Boot TWRP image", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "twrp.img")
+            val path = SafFiles.prepareFile(context, uri, "twrp.img")
             ops.boot(File(path))
         }
     }
@@ -608,7 +608,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                                     // Only copy the attachment when the command actually uses it -
                                     // it can be a multi-hundred-MB image.
                                     val file = if (uri != null && ops.commandNeedsFile(cmd)) {
-                                        File(SafFiles.copyToCache(context, uri, "terminal_attachment.img"))
+                                        File(SafFiles.prepareFile(context, uri, "terminal_attachment.img"))
                                     } else null
                                     ops.rawCommandWithFile(cmd, file)
                                 }

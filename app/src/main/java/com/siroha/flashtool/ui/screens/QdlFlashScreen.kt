@@ -206,7 +206,7 @@ fun QdlFlashScreen(
         rawprogramUri = uri
         if (uri != null) {
             scope.launch {
-                val path = SafFiles.copyToCache(context, uri, "rawprogram.xml")
+                val path = SafFiles.prepareFile(context, uri, "rawprogram.xml")
                 rawprogramLocalPath = path
                 val parsed = runCatching { RawProgramXml.parsePartitions(File(path)) }.getOrDefault(emptyList())
                 partitions = parsed
@@ -243,7 +243,7 @@ fun QdlFlashScreen(
                 foundRawprogram?.let { raw ->
                     rawprogramUri = raw.uri
                     scope.launch {
-                        val path = SafFiles.copyToCache(context, raw.uri, "rawprogram.xml")
+                        val path = SafFiles.prepareFile(context, raw.uri, "rawprogram.xml")
                         rawprogramLocalPath = path
                         val parsed = runCatching { RawProgramXml.parsePartitions(File(path)) }.getOrDefault(emptyList())
                         partitions = parsed
@@ -266,13 +266,16 @@ fun QdlFlashScreen(
             output.clear()
 
             val ops = FlashOperations(context, logRepository)
-            val loaderPath = SafFiles.copyToCache(context, loaderUri!!, "loader")
-            val patchPath = SafFiles.copyToCache(context, patchUri!!, "patch.xml")
-            val decodedUri = Uri.decode(rawprogramUri.toString())
-            val includeDir = if (decodedUri.contains("primary:")) {
-                val cleanPath = decodedUri.substringAfterLast("primary:").substringBeforeLast("/")
-                "/storage/emulated/0/$cleanPath"
-            } else null
+            val loaderPath = SafFiles.prepareFile(context, loaderUri!!, "loader")
+            val patchPath = SafFiles.prepareFile(context, patchUri!!, "patch.xml")
+            // Folder that holds the firmware images: the real parent folder of rawprogram.xml when
+            // it can be resolved, otherwise the old "primary:" guess from the Uri.
+            val includeDir = SafFiles.resolveRealPath(context, rawprogramUri!!)?.let { File(it).parent }
+                ?: Uri.decode(rawprogramUri.toString()).let { decodedUri ->
+                    if (decodedUri.contains("primary:")) {
+                        "/storage/emulated/0/" + decodedUri.substringAfterLast("primary:").substringBeforeLast("/")
+                    } else null
+                }
 
             ops.runQdlNoRootBridge(
                 loaderPath = loaderPath,

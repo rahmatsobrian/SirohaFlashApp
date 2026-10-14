@@ -561,7 +561,7 @@ class TerminalSession(
             // A path typed by hand, like on a PC: use the file where it is, if the app is allowed to read it.
             if (name.startsWith("/")) {
                 val typed = File(name)
-                if (typed.isFile && typed.canRead()) return Attachment(typed.name, null, name)
+                if (SafFiles.canReallyRead(typed)) return Attachment(typed.name, null, name)
                 err(
                     if (typed.exists()) "cannot read '$name': no permission - allow All files access for this app, or attach the file with the paperclip"
                     else "cannot load '$name': no such file"
@@ -579,7 +579,7 @@ class TerminalSession(
 
     /** The file itself when [attachment] has a real path the app can read, so a multi-GB image isn't copied for nothing. */
     private fun directFile(attachment: Attachment): File? =
-        attachment.path.takeIf { it.startsWith("/") }?.let { File(it) }?.takeIf { it.isFile && it.canRead() }
+        attachment.path.takeIf { it.startsWith("/") }?.let { File(it) }?.takeIf { SafFiles.canReallyRead(it) }
 
     /** A readable file for the clients: the real file when possible, otherwise a copy in the app cache. */
     private suspend fun stage(attachment: Attachment): File? {

@@ -98,7 +98,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, logRepository: Log
         pendingFlash = null
         if (uri == null || target == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Flash ${target.label}", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "${target.partition}.img")
+            val path = SafFiles.prepareFile(context, uri, "${target.partition}.img")
             ops.flashPartition(target.partition, File(path))
         }
     }
@@ -106,7 +106,7 @@ fun AbPartitionScreen(fastbootOperations: FastbootOperations, logRepository: Log
     val twrpPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launchWithFeedback(snackbarHostState, "Boot TWRP image", { busy = it }) {
-            val path = SafFiles.copyToCache(context, uri, "twrp.img")
+            val path = SafFiles.prepareFile(context, uri, "twrp.img")
             ops.boot(File(path))
         }
     }
