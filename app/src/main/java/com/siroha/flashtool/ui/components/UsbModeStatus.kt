@@ -110,14 +110,9 @@ fun UsbModeStatusCard(info: UsbModeInfo, expected: UsbMode? = null) {
     )
 }
 
-/** Compact one-line status (dot + mode) for tight places such as the terminal. */
+/** Compact one-line status (mode text only) for tight places such as the terminal. */
 @Composable
 fun UsbModeChip(info: UsbModeInfo, modifier: Modifier = Modifier) {
-    val dot: Color = when (info.mode) {
-        UsbMode.NONE -> MaterialTheme.colorScheme.outline
-        UsbMode.OTHER -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
-    }
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(50))
@@ -126,7 +121,6 @@ fun UsbModeChip(info: UsbModeInfo, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dot))
         Text(title(info), style = MaterialTheme.typography.labelLarge)
     }
 }
