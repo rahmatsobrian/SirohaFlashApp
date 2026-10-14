@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CardDefaults
 import com.siroha.flashtool.ui.theme.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -145,30 +146,23 @@ private val moreFlashablePartitions = listOf(
     FlashablePartition("bootloader", "bootloader", risky = true),
 )
 
+/** One reboot target, available through fastboot ([target]) and through ADB ([adbCommand]). */
 private data class RebootOption(
     val label: String,
     val target: FastbootRebootTarget,
+    val adbCommand: String,
+    /** Run [adbCommand] as a shell command instead of a raw ADB service (needed for `reboot -p`). */
+    val adbShell: Boolean = false,
     val feedback: String = "Reboot to $label"
 )
 
 private val rebootOptions = listOf(
-    RebootOption("Bootloader", FastbootRebootTarget.BOOTLOADER),
-    RebootOption("Recovery", FastbootRebootTarget.RECOVERY),
-    RebootOption("System", FastbootRebootTarget.SYSTEM),
-    RebootOption("FastbootD", FastbootRebootTarget.FASTBOOTD),
-    RebootOption("Power off", FastbootRebootTarget.POWEROFF, feedback = "Power off"),
-    RebootOption("EDL (9008)", FastbootRebootTarget.EDL, feedback = "Reboot to EDL"),
-)
-
-/** An ADB reboot: [command] is run as a raw ADB service, or as a shell command when [shell] is true. */
-private data class AdbRebootOption(val label: String, val command: String, val shell: Boolean = false)
-
-private val adbRebootOptions = listOf(
-    AdbRebootOption("Bootloader", "reboot bootloader"),
-    AdbRebootOption("Recovery", "reboot recovery"),
-    AdbRebootOption("System", "reboot"),
-    AdbRebootOption("EDL (9008)", "reboot edl"),
-    AdbRebootOption("Power off", "reboot -p", shell = true),
+    RebootOption("Bootloader", FastbootRebootTarget.BOOTLOADER, "reboot bootloader"),
+    RebootOption("Recovery", FastbootRebootTarget.RECOVERY, "reboot recovery"),
+    RebootOption("System", FastbootRebootTarget.SYSTEM, "reboot"),
+    RebootOption("FastbootD", FastbootRebootTarget.FASTBOOTD, "reboot fastboot"),
+    RebootOption("Power off", FastbootRebootTarget.POWEROFF, "reboot -p", adbShell = true, feedback = "Power off"),
+    RebootOption("EDL (9008)", FastbootRebootTarget.EDL, "reboot edl", feedback = "Reboot to EDL"),
 )
 
 /**
@@ -236,6 +230,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
     var adbConnecting by remember { mutableStateOf(false) }
     var adbAutoConnectDenied by remember { mutableStateOf(false) }
     var lastAdbDeviceName by remember { mutableStateOf<String?>(null) }
+    var rebootViaAdb by rememberSaveable { mutableStateOf(false) }
     var sideloadName by remember { mutableStateOf<String?>(null) }
     var sideloadRunning by remember { mutableStateOf(false) }
 
@@ -306,6 +301,21 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
         }
     }
 
+    // ADB actions never need a pre-connected device: like the fastboot ones they try to connect
+    // themselves first, so the buttons are always usable.
+    suspend fun ensureAdbConnected(): Boolean {
+        if (adbConnected && adb.isConnected()) return true
+        adbConnecting = true
+        val ok = adb.connect()
+        adbConnecting = false
+        adbConnected = ok
+        if (ok) {
+            lastAdbDeviceName = UsbDeviceHelper.listDevices(context)
+                .firstOrNull { UsbDeviceHelper.isLikelyAdbDevice(it) }?.deviceName
+        }
+        return ok
+    }
+
     val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         sideloadRunning = true
@@ -314,7 +324,7 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
         OperationStatus.begin("ADB sideload: $sideloadName")
         scope.launch {
             val ok = try {
-                adb.sideloadFromUri(context, uri)
+                ensureAdbConnected() && adb.sideloadFromUri(context, uri)
             } finally {
                 OperationStatus.end()
             }
@@ -322,6 +332,11 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
             sideloadRunning = false
             snackbarHostState.showSnackbar(if (ok) "Sideload finished - check Utilities > Logs" else "Sideload failed - check Utilities > Logs")
         }
+    }
+
+    // The reboot list follows whichever link is up (fastboot or ADB); the chips still let you override it.
+    LaunchedEffect(connected, adbConnected) {
+        if (connected) rebootViaAdb = false else if (adbConnected) rebootViaAdb = true
     }
 
     // Keeps the ADB link honest while this screen is open (same logic the old ADB Tools screen had):
@@ -473,51 +488,67 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                 // Menyiapkan daftar item untuk ActionListGroup
                 val statusEntries = mutableListOf<ActionEntry>()
 
-                // 1. Entri Status (Waiting / Connected) yang bisa diklik
+                val anyConnected = connected || adbConnected
+                val anyConnecting = connecting || adbConnecting
+                val anyDenied = autoConnectDenied || adbAutoConnectDenied
+
                 statusEntries.add(
                     ActionEntry(
                         title = when {
-                            connected -> "Connected (Ready for flashing)"
-                            connecting -> "Connecting..."
-                            autoConnectDenied -> "USB permission needed"
+                            connected -> "Connected - Fastboot"
+                            adbConnected -> "Connected - ADB"
+                            anyConnecting -> "Connecting..."
+                            anyDenied -> "USB permission needed"
                             else -> "Waiting for device..."
                         },
                         subtitle = when {
-                            connected -> null
-                            connecting -> null
-                            autoConnectDenied -> "USB permission was denied - tap to ask again"
-                            else -> "Please connect a device in fastboot mode"
+                            connected -> "Ready for flashing"
+                            adbConnected -> "Ready for reboot and sideload"
+                            anyConnecting -> null
+                            anyDenied -> "USB permission was denied - tap Connect device to ask again"
+                            else -> "Connect a device in fastboot mode, or in ADB / recovery mode"
                         },
-                        icon = if (connected) Icons.Filled.CheckCircle else Icons.Filled.Usb,
+                        icon = if (anyConnected) Icons.Filled.CheckCircle else Icons.Filled.Usb,
                         enabled = true,
                         onClick = {
-                            // Aksi saat status diklik (untuk interaksi / kesenangan)
-                            if (!connected && !connecting) {
+                            if (!anyConnected && !anyConnecting) {
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("Status: Waiting for device to connect in fastboot mode.")
+                                    snackbarHostState.showSnackbar("Status: waiting for a device in fastboot or ADB mode.")
                                 }
                             }
                         }
                     )
                 )
 
-                // 2. Entri tombol Connect jika perangkat belum terhubung
-                if (showConnectRow) {
+                // One Connect button for both: it connects to whichever mode the phone is in.
+                if (!anyConnected && !anyConnecting) {
                     statusEntries.add(
                         ActionEntry(
-                            title = "Connect fastboot device",
+                            title = "Connect device",
+                            subtitle = "Fastboot or ADB - detected automatically",
                             icon = Icons.Filled.Usb,
                             enabled = !busy,
                             onClick = {
                                 scope.launch {
                                     autoConnectDenied = false
-                                    connecting = true
-                                    val ok = ops.connect()
-                                    connecting = false
-                                    connected = ok
+                                    adbAutoConnectDenied = false
+                                    val devices = UsbDeviceHelper.listDevices(context)
+                                    val hasFastboot = devices.any { UsbDeviceHelper.isLikelyFastbootDevice(it) }
+                                    val hasAdb = devices.any { UsbDeviceHelper.isLikelyAdbDevice(it) }
+                                    var ok = false
+                                    if (hasFastboot || !hasAdb) {
+                                        connecting = true
+                                        ok = ops.connect()
+                                        connecting = false
+                                        connected = ok
+                                        if (!ok) autoConnectDenied = true
+                                    }
+                                    if (!ok && (hasAdb || !hasFastboot)) {
+                                        ok = ensureAdbConnected()
+                                        if (!ok) adbAutoConnectDenied = true
+                                    }
                                     if (!ok) {
-                                        autoConnectDenied = true
-                                        snackbarHostState.showSnackbar("Couldn't connect - make sure the device is in fastboot mode and USB permission is granted")
+                                        snackbarHostState.showSnackbar("Couldn't connect - check the mode (fastboot / ADB) and the USB permission")
                                     }
                                 }
                             }
@@ -585,7 +616,14 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
             }
 
             item {
-                SectionHeading(Icons.Filled.RestartAlt, "Fastboot reboot", modifier = Modifier.padding(start = 4.dp))
+                SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(selected = !rebootViaAdb, onClick = { rebootViaAdb = false }, label = { Text("Fastboot") })
+                    FilterChip(selected = rebootViaAdb, onClick = { rebootViaAdb = true }, label = { Text("ADB") })
+                }
                 ActionListGroup(
                     rebootOptions.map { opt ->
                         ActionEntry(
@@ -593,8 +631,17 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             icon = Icons.Filled.RestartAlt,
                             enabled = !busy,
                             onClick = {
-                                scope.launchWithFeedback(snackbarHostState, opt.feedback, { busy = it }) {
-                                    ops.reboot(opt.target).also { connected = false }
+                                if (rebootViaAdb) {
+                                    scope.launchWithFeedback(snackbarHostState, "ADB reboot - ${opt.label}", { busy = it }) {
+                                        if (!ensureAdbConnected()) return@launchWithFeedback false
+                                        val outcome = if (opt.adbShell) adb.shellWithOutcome(opt.adbCommand) else adb.rawCommand(opt.adbCommand)
+                                        // The device drops off USB after a reboot; the poll loop notices and resets the link.
+                                        outcome.success.also { adbConnected = false }
+                                    }
+                                } else {
+                                    scope.launchWithFeedback(snackbarHostState, opt.feedback, { busy = it }) {
+                                        ops.reboot(opt.target).also { connected = false }
+                                    }
                                 }
                             }
                         )
@@ -956,45 +1003,6 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
             }
 
             item {
-                SectionHeading(Icons.Filled.Usb, "ADB", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    listOf(
-                        ActionEntry(
-                            title = when {
-                                adbConnected -> "ADB connected - reconnect"
-                                adbConnecting -> "Connecting..."
-                                adbAutoConnectDenied -> "USB permission needed"
-                                else -> "Connect ADB device"
-                            },
-                            subtitle = when {
-                                adbConnected -> "Auto-reconnects if the device re-enumerates (e.g. TWRP switching into Sideload)"
-                                adbConnecting -> null
-                                adbAutoConnectDenied -> "USB permission was denied - tap to ask again"
-                                else -> "Works in normal ADB mode and in most custom recoveries (TWRP, OrangeFox, ...)"
-                            },
-                            icon = if (adbConnected) Icons.Filled.CheckCircle else Icons.Filled.Usb,
-                            enabled = !busy && !adbConnecting,
-                            onClick = {
-                                adbConnecting = true
-                                adbAutoConnectDenied = false
-                                scope.launch {
-                                    val ok = adb.connect()
-                                    adbConnected = ok
-                                    adbConnecting = false
-                                    if (ok) {
-                                        lastAdbDeviceName = UsbDeviceHelper.listDevices(context)
-                                            .firstOrNull { UsbDeviceHelper.isLikelyAdbDevice(it) }?.deviceName
-                                    } else {
-                                        adbAutoConnectDenied = true
-                                    }
-                                }
-                            }
-                        )
-                    )
-                )
-            }
-
-            item {
                 SectionHeading(Icons.Filled.CloudUpload, "ADB sideload", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     listOf(
@@ -1003,36 +1011,16 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             subtitle = if (sideloadRunning) {
                                 "In progress - details are in Utilities > Logs"
                             } else {
-                                "Recovery must be in ADB sideload mode. Reads the ZIP in place (All files access) without copying when possible"
+                                "Connects to the ADB device by itself. Recovery must be in ADB sideload mode; the ZIP is read in place (All files access) when possible"
                             },
                             icon = Icons.Filled.CloudUpload,
-                            enabled = !busy && adbConnected,
+                            enabled = !busy,
                             onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
                         )
                     )
                 )
             }
 
-            item {
-                SectionHeading(Icons.Filled.RestartAlt, "ADB reboot", modifier = Modifier.padding(start = 4.dp))
-                ActionListGroup(
-                    adbRebootOptions.map { opt ->
-                        ActionEntry(
-                            title = opt.label,
-                            subtitle = if (adbConnected) null else "Connect an ADB device first",
-                            icon = Icons.Filled.RestartAlt,
-                            enabled = !busy && adbConnected,
-                            onClick = {
-                                scope.launchWithFeedback(snackbarHostState, "ADB reboot - ${opt.label}", { busy = it }) {
-                                    val outcome = if (opt.shell) adb.shellWithOutcome(opt.command) else adb.rawCommand(opt.command)
-                                    // The device drops off USB after a reboot; the poll loop above notices and resets the link.
-                                    outcome.success.also { adbConnected = false }
-                                }
-                            }
-                        )
-                    }
-                )
-            }
         }
         // Floating progress + live log while an action runs, so it's visible without scrolling down.
         OperationOverlay(
