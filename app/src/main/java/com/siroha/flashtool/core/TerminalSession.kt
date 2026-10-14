@@ -34,7 +34,12 @@ class TerminalSession(
     enum class Kind { INPUT, OUTPUT, ERROR, INFO }
 
     data class Line(val text: String, val kind: Kind)
-    data class Attachment(val name: String, val uri: Uri)
+    /**
+     * The one attached file. [path] is the text typed into the command line: the real
+     * filesystem path when it could be resolved (/storage/emulated/0/Download/x.img),
+     * otherwise just the name. [uri] is the way to read it when the path itself isn't readable.
+     */
+    data class Attachment(val name: String, val uri: Uri?, val path: String)
 
     private val _lines = MutableStateFlow(
         listOf(
@@ -72,14 +77,14 @@ class TerminalSession(
     // ------------------------------------------------------------------
 
     /** Only one file can be attached at a time: attaching another replaces it. */
-    fun attach(name: String, uri: Uri) {
-        _attachments.value = listOf(Attachment(name, uri))
-        info("attached: $name")
+    fun attach(name: String, uri: Uri, path: String) {
+        _attachments.value = listOf(Attachment(name, uri, path))
+        info("attached: $path")
     }
 
     fun detach(name: String): Boolean {
         val before = _attachments.value
-        _attachments.value = before.filterNot { it.name.equals(name, ignoreCase = true) }
+        _attachments.value = before.filterNot { it.name.equals(name, ignoreCase = true) || it.path.equals(name, ignoreCase = true) }
         return _attachments.value.size != before.size
     }
 
@@ -434,7 +439,14 @@ class TerminalSession(
                 if (!ensureAdb()) return
                 val started = System.currentTimeMillis()
                 info("Sideloading ${attachment.name}...")
-                if (adb.sideloadFromUri(context, attachment.uri)) out("Total xfer: done\nOKAY") else failed(started, "sideload")
+                val direct = directFile(attachment)
+                val uri = attachment.uri
+                val sent = when {
+                    direct != null -> adb.sideload(direct)
+                    uri != null -> adb.sideloadFromUri(context, uri)
+                    else -> { err("cannot read '${attachment.path}'"); false }
+                }
+                if (sent) out("Total xfer: done\nOKAY") else failed(started, "sideload")
             }
             "push", "pull", "install", "uninstall", "install-multiple", "forward", "reverse", "backup", "restore", "sync" ->
                 err("adb $cmd isn't supported by the built-in client yet. Available: devices, shell, reboot, sideload, root, remount, logcat -d.")
@@ -534,7 +546,7 @@ class TerminalSession(
 
     private fun listAttachments() {
         val files = _attachments.value
-        if (files.isEmpty()) info("(no file attached - tap the paperclip)") else files.forEach { out(it.name) }
+        if (files.isEmpty()) info("(no file attached - tap the paperclip)") else files.forEach { out(it.path) }
     }
 
     /** Finds an attached file by name (a leading path is ignored), or the obvious default when none was named. */
@@ -542,9 +554,22 @@ class TerminalSession(
         val files = _attachments.value
         if (name != null) {
             val base = name.substringAfterLast('/')
-            val hit = files.firstOrNull { it.name.equals(base, ignoreCase = true) }
-            if (hit == null) err("cannot load '$name': no such file - attach it first (ls shows attached files)")
-            return hit
+            val hit = files.firstOrNull {
+                it.path.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) || it.name.equals(base, ignoreCase = true)
+            }
+            if (hit != null) return hit
+            // A path typed by hand, like on a PC: use the file where it is, if the app is allowed to read it.
+            if (name.startsWith("/")) {
+                val typed = File(name)
+                if (typed.isFile && typed.canRead()) return Attachment(typed.name, null, name)
+                err(
+                    if (typed.exists()) "cannot read '$name': no permission - allow All files access for this app, or attach the file with the paperclip"
+                    else "cannot load '$name': no such file"
+                )
+                return null
+            }
+            err("cannot load '$name': no such file - attach it first (ls shows the attached file)")
+            return null
         }
         defaultName?.let { d -> files.firstOrNull { it.name.equals(d, ignoreCase = true) }?.let { return it } }
         if (files.size == 1) return files[0]
@@ -552,16 +577,27 @@ class TerminalSession(
         return null
     }
 
-    /** Copies an attachment into the app cache so the clients can read it as a normal file. */
-    private suspend fun stage(attachment: Attachment): File? =
-        try {
-            File(SafFiles.copyToCache(context, attachment.uri, "term_" + attachment.name.replace(Regex("[^A-Za-z0-9._-]"), "_")))
+    /** The file itself when [attachment] has a real path the app can read, so a multi-GB image isn't copied for nothing. */
+    private fun directFile(attachment: Attachment): File? =
+        attachment.path.takeIf { it.startsWith("/") }?.let { File(it) }?.takeIf { it.isFile && it.canRead() }
+
+    /** A readable file for the clients: the real file when possible, otherwise a copy in the app cache. */
+    private suspend fun stage(attachment: Attachment): File? {
+        directFile(attachment)?.let { return it }
+        val uri = attachment.uri
+        if (uri == null) {
+            err("cannot read '${attachment.path}'")
+            return null
+        }
+        return try {
+            File(SafFiles.copyToCache(context, uri, "term_" + attachment.name.replace(Regex("[^A-Za-z0-9._-]"), "_")))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             err("cannot read '${attachment.name}': ${e.message}")
             null
         }
+    }
 
     // ------------------------------------------------------------------
     // Help text and parsing

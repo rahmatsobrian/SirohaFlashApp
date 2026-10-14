@@ -52,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +70,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.core.TerminalSession
 import com.siroha.flashtool.data.LogRepository
@@ -125,11 +129,25 @@ fun TerminalScreen(
 
     // Only this screen needs the window to resize for the keyboard (imePadding below does the
     // rest). Without it the system pans the window AND imePadding lifts the content: a huge gap.
+    // The mode is re-applied on every resume and when the input gets focus, because coming back
+    // from the file picker could leave the window in pan mode (the gap only showed up after attaching).
+    val applyResizeMode = remember(context) {
+        {
+            context.findActivity()?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            Unit
+        }
+    }
     DisposableEffect(Unit) {
-        val window = context.findActivity()?.window
+        val activity = context.findActivity()
+        val window = activity?.window
         val previous = window?.attributes?.softInputMode
-        window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        onDispose { if (window != null && previous != null) window.setSoftInputMode(previous) }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) applyResizeMode() }
+        (activity as? LifecycleOwner)?.lifecycle?.addObserver(observer)
+        applyResizeMode()
+        onDispose {
+            (activity as? LifecycleOwner)?.lifecycle?.removeObserver(observer)
+            if (window != null && previous != null) window.setSoftInputMode(previous)
+        }
     }
 
     // Keep the connection state honest while the screen is open: drop links to unplugged phones,
@@ -169,9 +187,12 @@ fun TerminalScreen(
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
+            applyResizeMode()
             val name = SafFiles.displayName(context, uri, "file")
-            session.attach(name, uri)
-            insertAtCursor(asShellWord(name))
+            // The full path when it can be worked out (/storage/emulated/0/Download/x.img), like a path pasted in Termux.
+            val path = SafFiles.resolveRealPath(context, uri) ?: name
+            session.attach(name, uri, path)
+            insertAtCursor(asShellWord(path))
         }
     }
 
@@ -315,7 +336,10 @@ fun TerminalScreen(
                             imeAction = ImeAction.Send
                         ),
                         keyboardActions = KeyboardActions(onSend = { submit() }),
-                        modifier = Modifier.weight(1f).padding(vertical = 14.dp)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 14.dp)
+                            .onFocusChanged { if (it.isFocused) applyResizeMode() }
                     )
                     HapticIconButton(onClick = { submit() }) {
                         Icon(Icons.Filled.Send, contentDescription = "Run", tint = MaterialTheme.colorScheme.primary)

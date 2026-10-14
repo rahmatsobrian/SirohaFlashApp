@@ -1,13 +1,64 @@
 package com.siroha.flashtool.core
 
+import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 object SafFiles {
+    /**
+     * The real filesystem path behind a picked document, e.g.
+     * /storage/emulated/0/Download/1dm/compressed/aboot.img, or null when the provider
+     * doesn't expose one (cloud storage, some download-manager ids). Works for the
+     * internal-storage and SD-card pickers, "raw:" Downloads entries and MediaStore items.
+     * Whether the app may actually READ that path depends on the All files access permission,
+     * so callers keep the Uri as a fallback.
+     */
+    fun resolveRealPath(context: Context, uri: Uri): String? = runCatching {
+        if (uri.scheme == "file") return@runCatching uri.path
+        if (!DocumentsContract.isDocumentUri(context, uri)) return@runCatching queryDataColumn(context, uri)
+        val docId = DocumentsContract.getDocumentId(uri)
+        when (uri.authority) {
+            "com.android.externalstorage.documents" -> {
+                val volume = docId.substringBefore(':')
+                val relative = docId.substringAfter(':', "")
+                if (volume.equals("primary", ignoreCase = true)) {
+                    Environment.getExternalStorageDirectory().path + "/" + relative
+                } else {
+                    "/storage/$volume/$relative"
+                }
+            }
+            "com.android.providers.downloads.documents" -> when {
+                docId.startsWith("raw:") -> docId.removePrefix("raw:")
+                else -> queryDataColumn(context, uri)
+            }
+            "com.android.providers.media.documents" -> {
+                val kind = docId.substringBefore(':')
+                val id = docId.substringAfter(':').toLongOrNull() ?: return@runCatching null
+                val base = when (kind) {
+                    "image" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    else -> MediaStore.Files.getContentUri("external")
+                }
+                queryDataColumn(context, ContentUris.withAppendedId(base, id))
+            }
+            else -> queryDataColumn(context, uri)
+        }
+    }.getOrNull()?.takeIf { it.startsWith("/") }
+
+    private fun queryDataColumn(context: Context, uri: Uri): String? = runCatching {
+        context.contentResolver.query(uri, arrayOf("_data"), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()
+
     /**
      * SAF content:// Uris aren't a plain filesystem path qdl's `ProcessBuilder`
      * child process can open directly, so we copy the picked file into our own
