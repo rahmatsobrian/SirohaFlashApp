@@ -10,11 +10,8 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -37,17 +34,8 @@ private val toolSections = listOf(
     MenuSection(
         "Fastboot", Icons.Filled.Build,
         listOf(
-            MenuEntry("Fastboot Flash Tool", "Flash boot/recovery/dtbo/vbmeta/splash, reboot, terminal", Icons.Filled.Build, Routes.FASTBOOT),
+            MenuEntry("Fastboot Flash Tool", "Flash partitions, boot TWRP, slot control, fastboot/ADB reboot, ADB sideload", Icons.Filled.Build, Routes.FASTBOOT),
             MenuEntry("Backup Partition", "Pick any partitions from the device list and save them to a folder", Icons.Filled.Backup, Routes.BACKUP_PARTITION),
-            MenuEntry("GSI ROM Flash Tool", "Dynamic partitions: erase system, flash GSI", Icons.Filled.RocketLaunch, Routes.GSI_TOOL),
-            MenuEntry("A/B Partition Tool", "Slot-aware flashing, active slot switch", Icons.Filled.SwapHoriz, Routes.AB_PARTITION),
-            MenuEntry("FRP Remove Tool", "SPRD via fastboot; Samsung/SPRD-MTK via ADB", Icons.Filled.Lock, Routes.FRP_TOOL),
-        )
-    ),
-    MenuSection(
-        "ADB", Icons.Filled.Terminal,
-        listOf(
-            MenuEntry("ADB Tools", "Connect, run shell/ADB commands, and sideload ZIPs", Icons.Filled.Terminal, Routes.ADB),
         )
     ),
     MenuSection(

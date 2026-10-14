@@ -57,7 +57,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.FastbootOperations
+import com.siroha.flashtool.core.OperationStatus
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.SwapHoriz
 import com.siroha.flashtool.core.FastbootRebootTarget
 import com.siroha.flashtool.core.SafFiles
 import com.siroha.flashtool.core.UsbDeviceHelper
@@ -152,9 +156,19 @@ private val rebootOptions = listOf(
     RebootOption("Recovery", FastbootRebootTarget.RECOVERY),
     RebootOption("System", FastbootRebootTarget.SYSTEM),
     RebootOption("FastbootD", FastbootRebootTarget.FASTBOOTD),
-    RebootOption("Continue boot", FastbootRebootTarget.CONTINUE, feedback = "Continue boot"),
     RebootOption("Power off", FastbootRebootTarget.POWEROFF, feedback = "Power off"),
     RebootOption("EDL (9008)", FastbootRebootTarget.EDL, feedback = "Reboot to EDL"),
+)
+
+/** An ADB reboot: [command] is run as a raw ADB service, or as a shell command when [shell] is true. */
+private data class AdbRebootOption(val label: String, val command: String, val shell: Boolean = false)
+
+private val adbRebootOptions = listOf(
+    AdbRebootOption("Bootloader", "reboot bootloader"),
+    AdbRebootOption("Recovery", "reboot recovery"),
+    AdbRebootOption("System", "reboot"),
+    AdbRebootOption("EDL (9008)", "reboot edl"),
+    AdbRebootOption("Power off", "reboot -p", shell = true),
 )
 
 /**
@@ -184,11 +198,12 @@ private fun ResultCard(text: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRepository, onOpenAdb: () -> Unit, onBack: () -> Unit) {
+fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOperations, logRepository: LogRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val ops = fastbootOperations
+    val adb = adbOperations
     var connected by remember { mutableStateOf(ops.isConnected()) }
     var busy by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
@@ -206,8 +221,6 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     // when switching modes, so only comparing the actual device identity
     // catches that swap.
     var lastFastbootDeviceName by remember { mutableStateOf<String?>(null) }
-    var manualCommand by rememberSaveable { mutableStateOf("") }
-    var manualResult by rememberSaveable { mutableStateOf("") }
     var ublStatusResult by rememberSaveable { mutableStateOf("") }
     var pendingFlash by remember { mutableStateOf<FlashablePartition?>(null) }
     var deviceInfoResult by rememberSaveable { mutableStateOf("") }
@@ -218,9 +231,13 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
     var slotChoice by remember { mutableStateOf<FlashablePartition?>(null) }
     var advancedOpen by rememberSaveable { mutableStateOf(false) }
     var advancedAcknowledged by rememberSaveable { mutableStateOf(false) }
-    // File attached to the terminal; only copied to cache when a command (flash/boot) uses it.
-    var attachedUri by remember { mutableStateOf<Uri?>(null) }
-    var attachedName by remember { mutableStateOf("") }
+    // --- ADB (reboot + sideload live here now) ---
+    var adbConnected by remember { mutableStateOf(adb.isConnected()) }
+    var adbConnecting by remember { mutableStateOf(false) }
+    var adbAutoConnectDenied by remember { mutableStateOf(false) }
+    var lastAdbDeviceName by remember { mutableStateOf<String?>(null) }
+    var sideloadName by remember { mutableStateOf<String?>(null) }
+    var sideloadRunning by remember { mutableStateOf(false) }
 
     // Keeps this screen's status in sync with what Home already saw. Home
     // only *enumerates* the USB device list to show "Detected - Fastboot"
@@ -289,10 +306,56 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
         }
     }
 
-    val attachPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+    val sideloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        attachedUri = uri
-        attachedName = SafFiles.displayName(context, uri, "attached file")
+        sideloadRunning = true
+        sideloadName = SafFiles.displayName(context, uri, "sideload.zip")
+        busy = true
+        OperationStatus.begin("ADB sideload: $sideloadName")
+        scope.launch {
+            val ok = try {
+                adb.sideloadFromUri(context, uri)
+            } finally {
+                OperationStatus.end()
+            }
+            busy = false
+            sideloadRunning = false
+            snackbarHostState.showSnackbar(if (ok) "Sideload finished - check Utilities > Logs" else "Sideload failed - check Utilities > Logs")
+        }
+    }
+
+    // Keeps the ADB link honest while this screen is open (same logic the old ADB Tools screen had):
+    // drop it when the phone is unplugged, reconnect when a recovery re-enumerates (e.g. TWRP
+    // switching into Sideload), and open it once per plug-in.
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val liveAdb = UsbDeviceHelper.listDevices(context).firstOrNull { UsbDeviceHelper.isLikelyAdbDevice(it) }
+            if (!busy) {
+                if (adbConnected) {
+                    if (liveAdb == null) {
+                        adb.disconnect()
+                        adbConnected = false
+                        lastAdbDeviceName = null
+                    } else if (lastAdbDeviceName == null) {
+                        lastAdbDeviceName = liveAdb.deviceName
+                    } else if (liveAdb.deviceName != lastAdbDeviceName) {
+                        adb.disconnect()
+                        adbConnected = false
+                        lastAdbDeviceName = null
+                        adbAutoConnectDenied = false
+                    }
+                } else if (liveAdb == null) {
+                    adbAutoConnectDenied = false
+                } else if (!adbAutoConnectDenied && !adbConnecting) {
+                    adbConnecting = true
+                    adbConnected = adb.connect()
+                    adbConnecting = false
+                    if (adbConnected) lastAdbDeviceName = liveAdb.deviceName
+                    if (!adbConnected) adbAutoConnectDenied = true
+                }
+            }
+            delay(1500)
+        }
     }
 
     fun startFlash(p: FlashablePartition) {
@@ -496,7 +559,33 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             }
 
             item {
-                SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
+                SectionHeading(Icons.Filled.SwapHoriz, "Slot control", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = "Check active slot",
+                            icon = Icons.Filled.CheckCircle,
+                            enabled = !busy,
+                            onClick = { scope.launchWithFeedback(snackbarHostState, "Check active slot", { busy = it }) { ops.getVar("current-slot").isNotBlank() } }
+                        ),
+                        ActionEntry(
+                            title = "Set active: A",
+                            icon = Icons.Filled.SwapHoriz,
+                            enabled = !busy,
+                            onClick = { scope.launchWithFeedback(snackbarHostState, "Set active slot A", { busy = it }) { ops.setActiveSlot("a") } }
+                        ),
+                        ActionEntry(
+                            title = "Set active: B",
+                            icon = Icons.Filled.SwapHoriz,
+                            enabled = !busy,
+                            onClick = { scope.launchWithFeedback(snackbarHostState, "Set active slot B", { busy = it }) { ops.setActiveSlot("b") } }
+                        )
+                    )
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.RestartAlt, "Fastboot reboot", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     rebootOptions.map { opt ->
                         ActionEntry(
@@ -536,99 +625,12 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
             }
 
             item {
-                SectionHeading(Icons.Filled.Terminal, "Terminal", modifier = Modifier.padding(start = 4.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Type only what comes after \"fastboot\", e.g. getvar product, reboot recovery or oem device-info. " +
-                                "To flash a file: attach it, then type flash <partition> (or boot).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = manualCommand,
-                            onValueChange = { manualCommand = it },
-                            placeholder = { Text("getvar product") },
-                            leadingIcon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
-                            singleLine = true,
-                            enabled = !busy,
-                            textStyle = MaterialTheme.typography.bodyLarge,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                cursorColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (attachedUri != null) {
-                            Text(
-                                "Attached: $attachedName",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(
-                                modifier = Modifier.weight(1f),
-                                enabled = !busy,
-                                onClick = { attachPicker.launch(arrayOf("*/*")) }
-                            ) {
-                                Icon(Icons.Filled.AttachFile, contentDescription = null)
-                                Text("  Attach file", maxLines = 1)
-                            }
-                            if (attachedUri != null) {
-                                FilledTonalButton(
-                                    modifier = Modifier.weight(1f),
-                                    enabled = !busy,
-                                    onClick = { attachedUri = null; attachedName = "" }
-                                ) {
-                                    Icon(Icons.Filled.Close, contentDescription = null)
-                                    Text("  Remove", maxLines = 1)
-                                }
-                            }
-                        }
-                        FilledTonalButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = manualCommand.isNotBlank() && !busy,
-                            onClick = {
-                                val cmd = manualCommand.trim()
-                                val uri = attachedUri
-                                scope.launchWithTextFeedback(
-                                    snackbarHostState, "Send command",
-                                    isSuccess = { textOk(it) },
-                                    setBusy = { busy = it },
-                                    onResult = { manualResult = it }
-                                ) {
-                                    // Only copy the attachment when the command actually uses it -
-                                    // it can be a multi-hundred-MB image.
-                                    val file = if (uri != null && ops.commandNeedsFile(cmd)) {
-                                        File(SafFiles.prepareFile(context, uri, "terminal_attachment.img"))
-                                    } else null
-                                    ops.rawCommandWithFile(cmd, file)
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Filled.Send, contentDescription = null)
-                            Text("  Send")
-                        }
-                        ResultCard(manualResult) { manualResult = "" }
-                    }
-                }
-            }
-
-            item {
                 SectionHeading(Icons.Filled.Tune, "Advanced", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     listOf(
                         ActionEntry(
                             title = if (advancedOpen) "Hide advanced options" else "Show advanced options",
-                            subtitle = if (advancedOpen) null else "System/super flashing, bootloader lock, dynamic partitions, device info, command handbook",
+                            subtitle = if (advancedOpen) null else "System/super flashing, bootloader lock, dynamic partitions, device info",
                             icon = if (advancedOpen) Icons.Filled.ExpandLess else Icons.Filled.Tune,
                             onClick = {
                                 if (advancedOpen) {
@@ -951,23 +953,84 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, logRepository: LogRep
                 ResultCard(dynamicResult) { dynamicResult = "" }
             }
 
-            item {
-                SectionHeading(Icons.Filled.MenuBook, "Command handbook", modifier = Modifier.padding(start = 4.dp))
-                FastbootCommandLibrary(onPick = { manualCommand = it })
-            }
             }
 
             item {
-                SectionHeading(Icons.Filled.Terminal, "ADB tools", modifier = Modifier.padding(start = 4.dp))
+                SectionHeading(Icons.Filled.Usb, "ADB", modifier = Modifier.padding(start = 4.dp))
                 ActionListGroup(
                     listOf(
                         ActionEntry(
-                            title = "Open ADB tools",
-                            subtitle = "Connect, run shell/ADB commands, and sideload ZIPs - now in one place",
-                            icon = Icons.Filled.Terminal,
-                            onClick = onOpenAdb
+                            title = when {
+                                adbConnected -> "ADB connected - reconnect"
+                                adbConnecting -> "Connecting..."
+                                adbAutoConnectDenied -> "USB permission needed"
+                                else -> "Connect ADB device"
+                            },
+                            subtitle = when {
+                                adbConnected -> "Auto-reconnects if the device re-enumerates (e.g. TWRP switching into Sideload)"
+                                adbConnecting -> null
+                                adbAutoConnectDenied -> "USB permission was denied - tap to ask again"
+                                else -> "Works in normal ADB mode and in most custom recoveries (TWRP, OrangeFox, ...)"
+                            },
+                            icon = if (adbConnected) Icons.Filled.CheckCircle else Icons.Filled.Usb,
+                            enabled = !busy && !adbConnecting,
+                            onClick = {
+                                adbConnecting = true
+                                adbAutoConnectDenied = false
+                                scope.launch {
+                                    val ok = adb.connect()
+                                    adbConnected = ok
+                                    adbConnecting = false
+                                    if (ok) {
+                                        lastAdbDeviceName = UsbDeviceHelper.listDevices(context)
+                                            .firstOrNull { UsbDeviceHelper.isLikelyAdbDevice(it) }?.deviceName
+                                    } else {
+                                        adbAutoConnectDenied = true
+                                    }
+                                }
+                            }
                         )
                     )
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.CloudUpload, "ADB sideload", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    listOf(
+                        ActionEntry(
+                            title = if (sideloadRunning) "Sideloading ${sideloadName ?: "..."}" else "Sideload ZIP",
+                            subtitle = if (sideloadRunning) {
+                                "In progress - details are in Utilities > Logs"
+                            } else {
+                                "Recovery must be in ADB sideload mode. Reads the ZIP in place (All files access) without copying when possible"
+                            },
+                            icon = Icons.Filled.CloudUpload,
+                            enabled = !busy && adbConnected,
+                            onClick = { sideloadPicker.launch(arrayOf("application/zip", "*/*")) }
+                        )
+                    )
+                )
+            }
+
+            item {
+                SectionHeading(Icons.Filled.RestartAlt, "ADB reboot", modifier = Modifier.padding(start = 4.dp))
+                ActionListGroup(
+                    adbRebootOptions.map { opt ->
+                        ActionEntry(
+                            title = opt.label,
+                            subtitle = if (adbConnected) null else "Connect an ADB device first",
+                            icon = Icons.Filled.RestartAlt,
+                            enabled = !busy && adbConnected,
+                            onClick = {
+                                scope.launchWithFeedback(snackbarHostState, "ADB reboot - ${opt.label}", { busy = it }) {
+                                    val outcome = if (opt.shell) adb.shellWithOutcome(opt.command) else adb.rawCommand(opt.command)
+                                    // The device drops off USB after a reboot; the poll loop above notices and resets the link.
+                                    outcome.success.also { adbConnected = false }
+                                }
+                            }
+                        )
+                    }
                 )
             }
         }

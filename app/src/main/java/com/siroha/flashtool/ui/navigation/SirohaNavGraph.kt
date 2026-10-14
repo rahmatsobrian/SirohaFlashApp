@@ -20,15 +20,11 @@ import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.components.SirohaBottomBar
 // Pastikan semua Screen ter-import di sini
 import com.siroha.flashtool.ui.screens.AboutScreen
-import com.siroha.flashtool.ui.screens.AbPartitionScreen
-import com.siroha.flashtool.ui.screens.AdbScreen
 import com.siroha.flashtool.ui.screens.BackupPartitionScreen
 import com.siroha.flashtool.ui.screens.TerminalScreen
 import com.siroha.flashtool.core.TerminalSession
 import com.siroha.flashtool.ui.screens.BypassUblScreen
 import com.siroha.flashtool.ui.screens.FastbootScreen
-import com.siroha.flashtool.ui.screens.FrpToolScreen
-import com.siroha.flashtool.ui.screens.GsiToolScreen
 import com.siroha.flashtool.ui.screens.GuideEdlScreen
 import com.siroha.flashtool.ui.screens.GuideFastbootScreen
 import com.siroha.flashtool.ui.screens.GuideMiToolScreen
@@ -52,12 +48,8 @@ object Routes {
     const val UTILITIES = "utilities"
     const val QDL_FLASH = "qdl_flash"
     const val FASTBOOT = "fastboot"
-    const val GSI_TOOL = "gsi_tool"
-    const val AB_PARTITION = "ab_partition"
     const val BACKUP_PARTITION = "backup_partition"
     const val TERMINAL = "terminal"
-    const val FRP_TOOL = "frp_tool"
-    const val ADB = "adb"
     const val USB_FIX = "usb_fix"
     const val REQUIREMENTS = "requirements"
     const val GUIDE_EDL = "guide_edl"
@@ -191,23 +183,8 @@ fun SirohaNavGraph(
         composable(Routes.FASTBOOT) {
             FastbootScreen(
                 fastbootOperations = fastbootOperations,
+                adbOperations = adbOperations,
                 logRepository = logRepository,
-                onOpenAdb = { navController.navigate(Routes.ADB) },
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable(Routes.GSI_TOOL) {
-            GsiToolScreen(
-                fastbootOperations = fastbootOperations,
-                logRepository = logRepository,
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable(Routes.AB_PARTITION) {
-            AbPartitionScreen(
-                fastbootOperations = fastbootOperations,
-                logRepository = logRepository,
-                onOpenAdb = { navController.navigate(Routes.ADB) },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -222,22 +199,6 @@ fun SirohaNavGraph(
         composable(Routes.BACKUP_PARTITION) {
             BackupPartitionScreen(
                 fastbootOperations = fastbootOperations,
-                adbOperations = adbOperations,
-                logRepository = logRepository,
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable(Routes.FRP_TOOL) {
-            FrpToolScreen(
-                fastbootOperations = fastbootOperations,
-                adbOperations = adbOperations,
-                logRepository = logRepository,
-                onOpenAdb = { navController.navigate(Routes.ADB) },
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable(Routes.ADB) {
-            AdbScreen(
                 adbOperations = adbOperations,
                 logRepository = logRepository,
                 onBack = { navController.popBackStack() }

@@ -118,37 +118,11 @@ private val fastbootEntries = listOf(
         Icons.Filled.Build
     ),
     GuideEntry(
-        "GSI ROM flash - full sequence",
-        "1. Bootloader unlocked + fastboot mode\n" +
-            "2. Flash vbmeta (disable-verity/disable-verification)\n" +
-            "3. Reboot to FastbootD\n" +
-            "4. Confirm is-userspace = yes\n" +
-            "5. Erase system\n" +
-            "6. Wipe Super (optional partitions: product/system_ext/odm)\n" +
-            "7. Flash the GSI image to system\n" +
-            "8. Reboot to recovery → factory reset → reboot system",
-        Icons.Filled.RocketLaunch
-    ),
-    GuideEntry(
-        "A/B partition tool",
-        "Flash any partition by exact name for either slot (e.g. boot_a, vendor_boot_b), check " +
-            "or switch the active slot, or boot a recovery image temporarily without flashing it.",
+        "Slot control, reboot and ADB sideload",
+        "Fastboot Flash Tool now holds slot control (check active slot, set active A/B), a Fastboot reboot " +
+            "group and a separate ADB group: ADB reboot (bootloader, recovery, system, EDL, power off) and ADB " +
+            "sideload ZIP.",
         Icons.Filled.SwapHoriz
-    ),
-    GuideEntry(
-        "FRP removal",
-        "SPRD devices: fastboot erase persist. Samsung and SPRD/MTK devices: via ADB shell " +
-            "commands instead - connect ADB first, same USB OTG setup as fastboot.",
-        Icons.Filled.Lock
-    ),
-    GuideEntry(
-        "Manual command box",
-        "Type the raw wire-protocol command only - never the word \"fastboot\" itself. " +
-            "e.g. for \"fastboot oem device-info\" type just  oem device-info ; for " +
-            "\"fastboot getvar product\" type  getvar:product  (colon, not space). " +
-            "Typing  devices  lists the currently attached fastboot device(s) locally, " +
-            "same as the real fastboot CLI - it's never sent to the phone.",
-        Icons.Filled.Code
     ),
     usbTroubleshooting,
 )
