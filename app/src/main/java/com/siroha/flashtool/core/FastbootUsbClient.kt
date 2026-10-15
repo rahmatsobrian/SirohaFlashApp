@@ -212,6 +212,7 @@ class FastbootUsbClient(
         var received = 0L
         var emptyReads = 0
         while (received < total) {
+            if (abortRequested) return FastbootResponse.Error("interrupted")
             val toRead = minOf(MAX_CHUNK.toLong(), total - received).toInt()
             val n = conn.bulkTransfer(inEp, buffer, toRead, BULK_TIMEOUT_MS)
             if (n < 0) return FastbootResponse.Error("payload read failed at offset $received of $total")
@@ -260,6 +261,7 @@ class FastbootUsbClient(
                 var o = off
                 var left = len
                 while (left > 0) {
+                    if (abortRequested) throw java.io.IOException("interrupted")
                     val n = minOf(left, MAX_CHUNK)
                     val w = conn.bulkTransfer(out, b, o, n, BULK_TIMEOUT_MS)
                     if (w <= 0) throw java.io.IOException("payload write failed at offset $sent")
@@ -305,6 +307,7 @@ class FastbootUsbClient(
             val buffer = ByteArray(MAX_CHUNK)
             var sent = 0L
             while (sent < size) {
+                if (abortRequested) return FastbootResponse.Error("interrupted")
                 val toRead = minOf(MAX_CHUNK.toLong(), size - sent).toInt()
                 val read = raf.read(buffer, 0, toRead)
                 if (read <= 0) break
@@ -317,8 +320,20 @@ class FastbootUsbClient(
         return readUntilTerminal()
     }
 
+    /** Ctrl+C: makes the transfer / wait loops stop at their next step. */
+    @Volatile private var abortRequested = false
+
+    fun interrupt() {
+        abortRequested = true
+    }
+
+    fun clearInterrupt() {
+        abortRequested = false
+    }
+
     private fun readUntilTerminal(onInfo: (String) -> Unit = {}): FastbootResponse {
         while (true) {
+            if (abortRequested) return FastbootResponse.Error("interrupted")
             val packet = readRawPacket() ?: return FastbootResponse.Error("read timed out / device disconnected")
             if (packet.size < 4) return FastbootResponse.Error("malformed response (too short)")
             val tag = String(packet, 0, 4, StandardCharsets.US_ASCII)

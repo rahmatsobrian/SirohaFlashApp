@@ -251,6 +251,23 @@ class AdbUsbClient(
 
     data class ShellV2Result(val exitCode: Int?, val stdout: String, val stderr: String)
 
+    // --- Ctrl+C support -------------------------------------------------------------------
+    private val writeLock = Any()
+    @Volatile private var abortRequested = false
+    @Volatile private var activeLocalId = 0
+    @Volatile private var activeRemoteId = 0
+
+    /**
+     * Ctrl+C: closes the stream that is running right now. The device kills the remote process
+     * (or ends the sideload) when its stream is closed, and the blocked read returns at once.
+     */
+    fun interrupt() {
+        abortRequested = true
+        val local = activeLocalId
+        val remote = activeRemoteId
+        if (local != 0 && remote != 0) sendMessage(A_CLSE, local, remote, label = "interrupt CLSE")
+    }
+
     /**
      * Runs a command via the `shell,v2,raw:` service, which frames stdout,
      * stderr, and — critically — an actual exit code as separate typed
@@ -263,6 +280,9 @@ class AdbUsbClient(
      */
     fun runShellV2(command: String): ShellV2Result {
         val localId = nextLocalId++
+        abortRequested = false
+        activeRemoteId = 0
+        activeLocalId = localId
         sendMessage(A_OPEN, localId, 0, "shell,v2,raw:$command\u0000".toByteArray())
 
         var remoteId = 0
@@ -276,6 +296,7 @@ class AdbUsbClient(
             // A leftover message from a previous stream (e.g. its late CLSE) must not end this one
             // - that made the second command of a session come back empty ("command failed").
             if (msg.arg1 != localId && (msg.command == A_OKAY || msg.command == A_WRTE || msg.command == A_CLSE)) continue
+            if (msg.command == A_OKAY || msg.command == A_WRTE) activeRemoteId = msg.arg0
             when (msg.command) {
                 A_OKAY -> if (remoteId == 0) remoteId = msg.arg0
                 A_WRTE -> {
@@ -306,7 +327,13 @@ class AdbUsbClient(
                 }
                 else -> { /* ignore unrelated traffic */ }
             }
+            if (abortRequested) { // Ctrl+C: stop reading; the stream was already closed by interrupt()
+                if (exitCode == null) exitCode = 130
+                break
+            }
         }
+        activeLocalId = 0
+        activeRemoteId = 0
         return ShellV2Result(exitCode, stdout.toString(), stderr.toString())
     }
 
@@ -393,6 +420,23 @@ class AdbUsbClient(
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> }
     ): SideloadResult {
         val localId = nextLocalId++
+        abortRequested = false
+        activeRemoteId = 0
+        activeLocalId = localId
+        try {
+            return sideloadStream(source, blockSize, onProgress, localId)
+        } finally {
+            activeLocalId = 0
+            activeRemoteId = 0
+        }
+    }
+
+    private fun sideloadStream(
+        source: SideloadSource,
+        blockSize: Int,
+        onProgress: (sent: Long, total: Long) -> Unit,
+        localId: Int
+    ): SideloadResult {
         val total = source.length
         val totalBlocksEstimate = if (blockSize > 0) (total + blockSize - 1) / blockSize else 0
         log.debug(TAG, "sideload starting: total=${total}B blockSize=${blockSize}B (~$totalBlocksEstimate blocks) localId=$localId")
@@ -419,6 +463,7 @@ class AdbUsbClient(
         when (first.command) {
             A_OKAY -> {
                 remoteId = first.arg0
+                activeRemoteId = remoteId
                 log.debug(TAG, "sideload stream opened: localId=$localId remoteId=$remoteId")
             }
             A_CLSE -> return SideloadResult.Rejected("device closed the sideload stream immediately — is it actually in recovery/sideload mode?")
@@ -447,11 +492,11 @@ class AdbUsbClient(
                 // complete.
                 val request = readMessage(timeoutMs = SIDELOAD_SCRIPT_TIMEOUT_MS)
                     ?: return SideloadResult.Error(
-                        "connection lost waiting for block request — last successful block was ${System.currentTimeMillis() - lastBlockAt}ms ago " +
+                        if (abortRequested) "interrupted" else "connection lost waiting for block request — last successful block was ${System.currentTimeMillis() - lastBlockAt}ms ago " +
                             "($blocksServed/$totalBlocksEstimate blocks, ${bytesServed}/${total}B served)"
                     )
                 when (request.command) {
-                    A_CLSE -> return SideloadResult.Error("device closed the stream unexpectedly after $blocksServed block(s) (${bytesServed}B)")
+                    A_CLSE -> return SideloadResult.Error(if (abortRequested) "interrupted" else "device closed the stream unexpectedly after $blocksServed block(s) (${bytesServed}B)")
                     A_WRTE -> {
                         remoteId = request.arg0
                         sendMessage(A_OKAY, localId, remoteId, label = "block-request ack") // ack the request packet itself
@@ -511,6 +556,10 @@ class AdbUsbClient(
                                 }
                                 val ackMs = System.currentTimeMillis() - ackStartedAt
 
+                                if (abortRequested) {
+                                    sendMessage(A_CLSE, localId, remoteId, label = "interrupt CLSE")
+                                    return SideloadResult.Error("interrupted")
+                                }
                                 blocksServed++
                                 bytesServed += chunkSize
                                 lastBlockAt = System.currentTimeMillis()
@@ -696,7 +745,7 @@ class AdbUsbClient(
         return true
     }
 
-    private fun sendMessage(command: Int, arg0: Int, arg1: Int, data: ByteArray = ByteArray(0), label: String = "message"): Boolean {
+    private fun sendMessage(command: Int, arg0: Int, arg1: Int, data: ByteArray = ByteArray(0), label: String = "message"): Boolean = synchronized(writeLock) {
         val conn = connection ?: run {
             log.error(TAG, "sendMessage($label): no connection open")
             return false
@@ -716,7 +765,7 @@ class AdbUsbClient(
         if (data.isNotEmpty()) {
             if (!bulkWriteChunked(conn, out, data, "$label data")) return false
         }
-        return true
+        true
     }
 
     private fun readMessage(timeoutMs: Int = BULK_TIMEOUT_MS): AdbMessage? {

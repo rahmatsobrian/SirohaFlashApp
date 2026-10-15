@@ -94,6 +94,11 @@ class FastbootOperations(
     /** True once [connect] has succeeded and hasn't been [disconnect]ed or lost via reboot. */
     fun isConnected(): Boolean = client != null
 
+    /** Ctrl+C from the terminal: stops the running transfer/wait at its next step. */
+    fun interrupt() { client?.interrupt() }
+
+    fun clearInterrupt() { client?.clearInterrupt() }
+
     private fun Int.toHexId() = "%04x".format(this)
 
     suspend fun getVar(name: String): String = withContext(Dispatchers.IO) {

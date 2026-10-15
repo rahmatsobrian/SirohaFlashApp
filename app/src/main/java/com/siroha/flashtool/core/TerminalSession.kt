@@ -66,6 +66,10 @@ class TerminalSession(
 
     @Volatile
     private var commandRunning = false
+    @Volatile private var interruptRequested = false
+
+    /** True while a command is running (so Ctrl+C has something to stop). */
+    val isBusy: Boolean get() = commandRunning
 
     private var adbAutoConnectTried = false
 
@@ -144,7 +148,8 @@ class TerminalSession(
     private var servingPath: String? = null
 
     private fun out(text: String) = add(text, Kind.OUTPUT)
-    private fun err(text: String) = add(text, Kind.ERROR)
+    // After Ctrl+C the aborted command reports "failed"/"interrupted": that noise is hidden, the ^C line says it all.
+    private fun err(text: String) { if (!interruptRequested) add(text, Kind.ERROR) }
     private fun info(text: String) = add(text, Kind.INFO)
 
     private fun updatePrompt() {
@@ -162,6 +167,8 @@ class TerminalSession(
         add(_prompt.value + line, Kind.INPUT)
 
         currentLine = line
+        interruptRequested = false
+        fastboot.clearInterrupt()
         commandRunning = true
         // A terminal is a plain command line: no floating progress card. Transfers print their
         // own progress line right here instead (the same OperationStatus feed, shown as text).
@@ -199,7 +206,66 @@ class TerminalSession(
             servingPath = null
             OperationStatus.end()
             commandRunning = false
+            if (interruptRequested && fastboot.isConnected()) {
+                // A fastboot transfer cut in half leaves the bootloader mid-download: drop the link so the
+                // next command opens a fresh one (re-plug the cable if the phone stops answering).
+                fastboot.disconnect()
+            }
+            fastboot.clearInterrupt() // other screens share this connection: never leave the flag set
+            interruptRequested = false
         }
+    }
+
+    /**
+     * Ctrl+C. While a command runs it stops it (shell command, sideload, fastboot transfer, waiting
+     * for a device); otherwise it just reports ^C like a real terminal. Returns true if something was stopped.
+     */
+    fun interrupt(): Boolean {
+        if (!commandRunning) {
+            add("^C", Kind.INFO)
+            return false
+        }
+        interruptRequested = true
+        add("^C", Kind.INFO)
+        adb.interrupt()
+        fastboot.interrupt()
+        return true
+    }
+
+    /**
+     * Tab. Completes the command name, the fastboot / adb sub-command, or the attached file's path.
+     * One match is completed fully, several are completed to their common start and listed.
+     * Returns the new text of the command line (unchanged when nothing matches).
+     */
+    fun complete(input: String): String {
+        if (shellMode) return input // device-side paths are not known here
+        val endsWithSpace = input.endsWith(' ')
+        val tokens = input.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val prefixTokens = if (endsWithSpace || tokens.isEmpty()) tokens else tokens.dropLast(1)
+        val word = if (endsWithSpace || tokens.isEmpty()) "" else tokens.last()
+        val candidates: List<String> = when {
+            prefixTokens.isEmpty() -> COMPLETE_COMMANDS
+            prefixTokens.size == 1 && prefixTokens[0].equals("fastboot", true) -> COMPLETE_FASTBOOT
+            prefixTokens.size == 1 && prefixTokens[0].equals("adb", true) -> COMPLETE_ADB
+            else -> _attachments.value.flatMap { listOf(it.path, it.name) }.distinct()
+        }
+        val matches = candidates.filter { it.startsWith(word, ignoreCase = true) }
+        if (matches.isEmpty()) return input
+        val head = if (prefixTokens.isEmpty()) "" else prefixTokens.joinToString(" ") + " "
+        if (matches.size == 1) {
+            val m = matches[0]
+            return head + (if (m.any { it.isWhitespace() }) "\"$m\"" else m) + " "
+        }
+        add(matches.joinToString("  "), Kind.INFO)
+        var common = matches[0]
+        for (m in matches) common = common.commonPrefixWith(m, ignoreCase = true)
+        return head + (if (common.length > word.length) common else word)
+    }
+
+    /** Ctrl+D: leaves the device shell when in one (like `exit`), otherwise nothing. */
+    suspend fun endOfInput() {
+        if (commandRunning) return
+        if (shellMode) execute("exit") else add("^D", Kind.INFO)
     }
 
     /**
@@ -389,7 +455,7 @@ class TerminalSession(
         }
         var announced = false
         val deadline = System.currentTimeMillis() + WAIT_FOR_DEVICE_MS
-        while (System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < deadline && !interruptRequested) {
             val dev = UsbDeviceHelper.listDevices(context).firstOrNull { UsbDeviceHelper.isLikelyFastbootDevice(it) }
             if (dev != null) {
                 if (fastboot.connect()) return true
@@ -527,7 +593,7 @@ class TerminalSession(
         if (adb.isConnected()) adb.disconnect() // the link is stale: the phone was unplugged or restarted
         var announced = false
         val deadline = System.currentTimeMillis() + WAIT_FOR_DEVICE_MS
-        while (System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < deadline && !interruptRequested) {
             if (hasAdbDevice()) {
                 if (adb.connect()) return true
                 err("adb: device unauthorized or the USB permission was denied - accept the 'Allow USB debugging' prompt on the phone and try again")
@@ -739,6 +805,15 @@ class TerminalSession(
     }
 
     private companion object {
+        private val COMPLETE_COMMANDS = listOf("adb", "fastboot", "help", "clear", "ls", "rm", "exit")
+        private val COMPLETE_FASTBOOT = listOf(
+            "devices", "getvar", "flash", "boot", "erase", "reboot", "reboot-bootloader", "reboot-recovery",
+            "reboot-fastboot", "continue", "stage", "oem", "flashing", "set_active", "help"
+        )
+        private val COMPLETE_ADB = listOf(
+            "devices", "shell", "reboot", "sideload", "root", "unroot", "remount", "logcat", "get-state",
+            "get-serialno", "wait-for-device", "version", "help"
+        )
         const val LOCAL_PROMPT = "$ "
         const val MAX_LINES = 2000
         const val MAX_LINES_PER_PRINT = 1500

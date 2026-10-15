@@ -18,7 +18,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -265,6 +273,55 @@ fun TerminalScreen(
         }
     }
 
+    // --- Ctrl + extra keys -----------------------------------------------------------------
+    var ctrlArmed by remember { mutableStateOf(false) }
+
+    fun moveCursor(to: Int) {
+        input = input.copy(selection = TextRange(to.coerceIn(0, input.text.length)))
+    }
+
+    /** Ctrl+C: stops the running command; with nothing running it just drops the line being typed. */
+    fun ctrlC() {
+        if (!session.interrupt()) {
+            setInput("")
+            historyIndex = -1
+        }
+    }
+
+    fun tab() {
+        if (running) return
+        val completed = session.complete(input.text)
+        if (completed != input.text) setInput(completed)
+    }
+
+    /** What Ctrl + [letter] does (the same keys a real terminal has). */
+    fun ctrlKey(letter: Char) {
+        val v = input
+        val at = v.selection.start.coerceIn(0, v.text.length)
+        when (letter.lowercaseChar()) {
+            'c' -> ctrlC()
+            'd' -> scope.launch {
+                if (!running) {
+                    running = true
+                    try {
+                        session.endOfInput()
+                    } finally {
+                        running = false
+                    }
+                }
+            }
+            'l' -> session.clear()
+            'a' -> moveCursor(0)
+            'e' -> moveCursor(v.text.length)
+            'u' -> input = TextFieldValue(v.text.substring(at), TextRange(0))
+            'k' -> input = TextFieldValue(v.text.substring(0, at), TextRange(at))
+            'w' -> {
+                val cut = v.text.substring(0, at).trimEnd().lastIndexOf(' ') + 1
+                input = TextFieldValue(v.text.substring(0, cut) + v.text.substring(at), TextRange(cut))
+            }
+        }
+    }
+
     val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 17.sp)
     val colorInput = MaterialTheme.colorScheme.primary
     val colorOutput = MaterialTheme.colorScheme.onSurface
@@ -335,6 +392,25 @@ fun TerminalScreen(
                     }
                 }
 
+                // Ctrl and friends. Ctrl is one-shot: tap it, then type a letter (Ctrl + C stops a running command).
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(selected = ctrlArmed, onClick = { ctrlArmed = !ctrlArmed }, label = { Text("Ctrl") })
+                    FilterChip(selected = false, onClick = { ctrlC() }, label = { Text("^C") })
+                    FilterChip(selected = false, onClick = { tab() }, label = { Text("Tab") })
+                    FilterChip(selected = false, onClick = { ctrlKey('d') }, label = { Text("^D") })
+                    FilterChip(selected = false, onClick = { moveCursor(input.selection.start - 1) }, label = { Text("←") })
+                    FilterChip(selected = false, onClick = { moveCursor(input.selection.start + 1) }, label = { Text("→") })
+                    FilterChip(selected = false, onClick = { moveCursor(0) }, label = { Text("Home") })
+                    FilterChip(selected = false, onClick = { moveCursor(input.text.length) }, label = { Text("End") })
+                }
+
                 // Prompt + input
                 Row(
                     modifier = Modifier
@@ -354,8 +430,18 @@ fun TerminalScreen(
                     )
                     BasicTextField(
                         value = input,
-                        onValueChange = { input = it },
-                        enabled = !running,
+                        onValueChange = { new ->
+                            if (ctrlArmed) {
+                                ctrlArmed = false
+                                val typed = if (new.text.length == input.text.length + 1 && new.selection.collapsed && new.selection.start > 0) {
+                                    new.text[new.selection.start - 1]
+                                } else null
+                                if (typed != null && typed.isLetter()) ctrlKey(typed) else input = new
+                            } else {
+                                input = new
+                            }
+                        },
+                        // Stays editable while a command runs: Ctrl+C has to be typeable then.
                         singleLine = true,
                         textStyle = TextStyle(
                             fontFamily = FontFamily.Monospace,
@@ -373,6 +459,20 @@ fun TerminalScreen(
                         modifier = Modifier
                             .weight(1f)
                             .padding(vertical = 14.dp)
+                            .onPreviewKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                if (e.key == Key.Tab) {
+                                    tab()
+                                    return@onPreviewKeyEvent true
+                                }
+                                if (!e.isCtrlPressed) return@onPreviewKeyEvent false
+                                val letter = when (e.key) {
+                                    Key.C -> 'c'; Key.D -> 'd'; Key.L -> 'l'; Key.A -> 'a'
+                                    Key.E -> 'e'; Key.U -> 'u'; Key.K -> 'k'; Key.W -> 'w'
+                                    else -> null
+                                }
+                                if (letter == null) false else { ctrlKey(letter); true }
+                            }
                             .focusRequester(inputFocus)
                             .onFocusChanged {
                                 inputFocused = it.isFocused

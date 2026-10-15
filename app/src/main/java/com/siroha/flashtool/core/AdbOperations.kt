@@ -97,6 +97,9 @@ class AdbOperations(
     /** True once [connect] has succeeded and hasn't been [disconnect]ed. */
     fun isConnected(): Boolean = client != null
 
+    /** Ctrl+C from the terminal: closes the running shell stream / sideload. */
+    fun interrupt() { client?.interrupt() }
+
     data class ShellOutcome(val text: String, val success: Boolean)
 
     /**
