@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * A PC-style command line on top of the app's built-in fastboot and ADB
@@ -33,7 +34,8 @@ class TerminalSession(
 ) {
     enum class Kind { INPUT, OUTPUT, ERROR, INFO }
 
-    data class Line(val text: String, val kind: Kind)
+    /** [live] lines are progress lines that keep being rewritten in place, like adb/fastboot on a PC. */
+    data class Line(val text: String, val kind: Kind, val live: Boolean = false)
     /**
      * The one attached file. [path] is the text typed into the command line: the real
      * filesystem path when it could be resolved (/storage/emulated/0/Download/x.img),
@@ -120,6 +122,27 @@ class TerminalSession(
         return sb.toString()
     }
 
+    /** Rewrites the last line when it is a live progress line, otherwise starts one. */
+    private fun live(text: String) {
+        val cur = _lines.value
+        _lines.value = if (cur.lastOrNull()?.live == true) {
+            cur.dropLast(1) + Line(text, Kind.OUTPUT, live = true)
+        } else {
+            (cur + Line(text, Kind.OUTPUT, live = true)).takeLast(MAX_LINES)
+        }
+    }
+
+    private fun formatSize(bytes: Long): String = when {
+        bytes >= 1L shl 30 -> "%.2f GB".format(bytes / 1073741824.0)
+        bytes >= 1L shl 20 -> "%.1f MB".format(bytes / 1048576.0)
+        bytes >= 1L shl 10 -> "%.1f KB".format(bytes / 1024.0)
+        else -> "$bytes B"
+    }
+
+    /** Path shown in `serving: '...'` while an `adb sideload` runs; null for every other command. */
+    @Volatile
+    private var servingPath: String? = null
+
     private fun out(text: String) = add(text, Kind.OUTPUT)
     private fun err(text: String) = add(text, Kind.ERROR)
     private fun info(text: String) = add(text, Kind.INFO)
@@ -140,14 +163,40 @@ class TerminalSession(
 
         currentLine = line
         commandRunning = true
-        OperationStatus.begin(line.take(70))
+        // A terminal is a plain command line: no floating progress card. Transfers print their
+        // own progress line right here instead (the same OperationStatus feed, shown as text).
+        OperationStatus.end()
         try {
-            if (shellMode) runShellLine(line) else runLocalLine(line)
+            kotlinx.coroutines.coroutineScope {
+                val progressJob = launch {
+                    var lastPercent = -1
+                    OperationStatus.progress.collect { p ->
+                        if (p == null) return@collect
+                        val percent = (p.fraction * 100).toInt()
+                        if (percent == lastPercent) return@collect
+                        lastPercent = percent
+                        val serving = servingPath
+                        if (serving != null) {
+                            live("serving: '$serving' (~$percent%)")
+                        } else if (p.bytesTotal > 0) {
+                            live("  ${formatSize(p.bytesDone)} / ${formatSize(p.bytesTotal)}  ($percent%)")
+                        } else {
+                            live("  $percent%")
+                        }
+                    }
+                }
+                try {
+                    if (shellMode) runShellLine(line) else runLocalLine(line)
+                } finally {
+                    progressJob.cancel()
+                }
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             err("error: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
+            servingPath = null
             OperationStatus.end()
             commandRunning = false
         }
@@ -438,15 +487,22 @@ class TerminalSession(
                 val attachment = findFile(rest.getOrNull(0), null) ?: return
                 if (!ensureAdb()) return
                 val started = System.currentTimeMillis()
-                info("Sideloading ${attachment.name}...")
                 val direct = directFile(attachment)
                 val uri = attachment.uri
+                servingPath = attachment.path
+                live("serving: '${attachment.path}' (~0%)")
                 val sent = when {
                     direct != null -> adb.sideload(direct)
                     uri != null -> adb.sideloadFromUri(context, uri)
                     else -> { err("cannot read '${attachment.path}'"); false }
                 }
-                if (sent) out("Total xfer: done\nOKAY") else failed(started, "sideload")
+                servingPath = null
+                if (sent) {
+                    live("serving: '${attachment.path}' (~100%)")
+                    out("Total xfer: 1.00x")
+                } else {
+                    failed(started, "sideload")
+                }
             }
             "push", "pull", "install", "uninstall", "install-multiple", "forward", "reverse", "backup", "restore", "sync" ->
                 err("adb $cmd isn't supported by the built-in client yet. Available: devices, shell, reboot, sideload, root, remount, logcat -d.")

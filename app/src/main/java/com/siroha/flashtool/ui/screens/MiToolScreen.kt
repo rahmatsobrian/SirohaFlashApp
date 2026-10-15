@@ -48,6 +48,7 @@ import com.siroha.flashtool.ui.components.GroupRowSpacing
 import com.siroha.flashtool.ui.components.groupRowShape
 import com.siroha.flashtool.ui.theme.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -80,6 +81,8 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
     var romTreeUri by remember { mutableStateOf<Uri?>(null) }
     var scripts by remember { mutableStateOf(listOf<DocumentFile>()) }
     var selectedScript by remember { mutableStateOf<DocumentFile?>(null) }
+    // Only the plain flash_all.sh is listed until the person asks for the rest (the *_lock* ones relock the bootloader).
+    var showAllScripts by remember { mutableStateOf(false) }
     var plan by remember { mutableStateOf<MiToolOperations.FlashPlan?>(null) }
     var planImages by remember { mutableStateOf(listOf<MiToolOperations.RomImage>()) }
     // True while a script is being read + its images/ folder resolved (both
@@ -119,6 +122,7 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
         plan = null
         planImages = emptyList()
         selectedScript = null
+        showAllScripts = false
         parseJob?.cancel()
         scope.launch {
             parsingScript = true
@@ -174,12 +178,17 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
                 item {
                     SectionHeading(Icons.Filled.Description, if (parsingScript) "Flash script - reading…" else "Flash script")
                 }
+                val safeScript = scripts.firstOrNull { it.name == "flash_all.sh" }
+                // Never hide a script that is currently selected, and never hide everything.
+                val expanded = showAllScripts || safeScript == null ||
+                    (selectedScript != null && selectedScript?.uri != safeScript.uri)
+                val shownScripts = if (expanded) scripts else listOf(safeScript!!)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(GroupRowSpacing)) {
-                        scripts.forEachIndexed { index, script ->
+                        shownScripts.forEachIndexed { index, script ->
                             val isSelected = script.uri == selectedScript?.uri
                             Surface(
-                                shape = groupRowShape(index, scripts.size),
+                                shape = groupRowShape(index, shownScripts.size),
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -207,6 +216,25 @@ fun MiToolScreen(fastbootOperations: FastbootOperations, logRepository: LogRepos
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                if (safeScript != null && scripts.size > 1) {
+                    item {
+                        TextButton(
+                            onClick = {
+                                if (expanded) {
+                                    showAllScripts = false
+                                    // Collapsing while another script is selected goes back to the safe one.
+                                    if (selectedScript?.uri != safeScript.uri) romTreeUri?.let { selectScript(it, safeScript) }
+                                } else {
+                                    showAllScripts = true
+                                }
+                            },
+                            enabled = !parsingScript
+                        ) {
+                            Text(if (expanded) "Hide other scripts" else "Show other scripts (${scripts.size - 1} hidden)")
                         }
                     }
                 }

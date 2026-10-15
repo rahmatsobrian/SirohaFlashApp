@@ -36,7 +36,9 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.CardDefaults
 import com.siroha.flashtool.ui.theme.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -616,7 +618,14 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
                             title = "Check active slot",
                             icon = Icons.Filled.CheckCircle,
                             enabled = !busy,
-                            onClick = { scope.launchWithFeedback(snackbarHostState, "Check active slot", { busy = it }) { ops.getVar("current-slot").isNotBlank() } }
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    val text = ops.activeSlotSummary()
+                                    busy = false
+                                    snackbarHostState.showSnackbar(if (text.startsWith("ERROR:")) "Check active slot - failed (see log for details)" else text)
+                                }
+                            }
                         ),
                         ActionEntry(
                             title = "Set active: A",
@@ -636,12 +645,20 @@ fun FastbootScreen(fastbootOperations: FastbootOperations, adbOperations: AdbOpe
 
             item {
                 SectionHeading(Icons.Filled.RestartAlt, "Reboot", modifier = Modifier.padding(start = 4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(selected = !rebootViaAdb, onClick = { rebootViaAdb = false }, label = { Text("Fastboot") })
-                    FilterChip(selected = rebootViaAdb, onClick = { rebootViaAdb = true }, label = { Text("ADB") })
+                val segmentHaptic = com.siroha.flashtool.ui.theme.LocalHapticTrigger.current
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        selected = !rebootViaAdb,
+                        onClick = { segmentHaptic(); rebootViaAdb = false },
+                        label = { Text("Fastboot") }
+                    )
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        selected = rebootViaAdb,
+                        onClick = { segmentHaptic(); rebootViaAdb = true },
+                        label = { Text("ADB") }
+                    )
                 }
                 ActionListGroup(
                     rebootOptions.map { opt ->

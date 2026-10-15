@@ -248,8 +248,35 @@ class FastbootOperations(
         }
     }
 
+    /**
+     * What "Check active slot" shows. A-only devices (e.g. Snapdragon 625 phones like the Redmi 5
+     * Plus) have no `current-slot` at all, so that isn't an error: it reports "A-only" instead.
+     * Returns the text to show, prefixed with "ERROR:" when the device couldn't be asked.
+     */
+    suspend fun activeSlotSummary(): String = withContext(Dispatchers.IO) {
+        val c = client ?: run { logAndReturnDisconnected(); return@withContext "ERROR: not connected" }
+        val current = queryVar(c, "current-slot")?.trim()?.trimStart('_')?.lowercase()
+        if (!current.isNullOrEmpty() && current != "none") {
+            log.success(TAG, "Active slot: $current")
+            return@withContext "Active slot: $current"
+        }
+        val slotCount = queryVar(c, "slot-count")?.trim()?.toIntOrNull()
+        val hasSlot = queryVar(c, "has-slot:boot")?.trim()?.lowercase()
+        if (slotCount == null || slotCount <= 1 || hasSlot == "no") {
+            log.info(TAG, "No A/B slots reported (slot-count=${slotCount ?: "n/a"}, has-slot:boot=${hasSlot ?: "n/a"}) - this is an A-only device.")
+            return@withContext "A-only device - no A/B slots (nothing to check)"
+        }
+        log.error(TAG, "Device reports $slotCount slots but no current-slot.")
+        "ERROR: device has $slotCount slots but didn't report the active one"
+    }
+
     suspend fun setActiveSlot(slot: String): Boolean = withContext(Dispatchers.IO) {
         val c = client ?: run { logAndReturnDisconnected(); return@withContext false }
+        val slotCount = queryVar(c, "slot-count")?.trim()?.toIntOrNull()
+        if (queryVar(c, "current-slot").isNullOrBlank() && (slotCount == null || slotCount <= 1)) {
+            log.error(TAG, "set_active $slot: this is an A-only device (no A/B slots), so there is no slot to switch.")
+            return@withContext false
+        }
         handleResult(c.command("set_active:$slot", onInfo = { logInfoLine(it) }), "set_active $slot")
     }
 

@@ -228,6 +228,8 @@ class AdbUsbClient(
         val output = StringBuilder()
         while (true) {
             val msg = readMessage() ?: break
+            // A leftover message from a previous stream (e.g. its late CLSE) must not end this one.
+            if (msg.arg1 != localId && (msg.command == A_OKAY || msg.command == A_WRTE || msg.command == A_CLSE)) continue
             when (msg.command) {
                 A_OKAY -> {
                     if (remoteId == 0) remoteId = msg.arg0
@@ -271,6 +273,9 @@ class AdbUsbClient(
 
         while (true) {
             val msg = readMessage() ?: break
+            // A leftover message from a previous stream (e.g. its late CLSE) must not end this one
+            // - that made the second command of a session come back empty ("command failed").
+            if (msg.arg1 != localId && (msg.command == A_OKAY || msg.command == A_WRTE || msg.command == A_CLSE)) continue
             when (msg.command) {
                 A_OKAY -> if (remoteId == 0) remoteId = msg.arg0
                 A_WRTE -> {

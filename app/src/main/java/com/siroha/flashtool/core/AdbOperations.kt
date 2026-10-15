@@ -117,7 +117,14 @@ class AdbOperations(
         }
         log.info(TAG, "adb shell $command")
         if (c.supportsShellV2) {
-            val result = c.runShellV2(command)
+            var result = c.runShellV2(command)
+            if (result.exitCode == null && result.stdout.isEmpty() && result.stderr.isEmpty()) {
+                // The v2 stream closed without a word (no output, no exit status): ask again through
+                // the plain shell service so ordinary commands like `ls` still return their text.
+                log.warn(TAG, "shell_v2 returned nothing for '$command' - retrying with the legacy shell service.")
+                val legacy = c.runService("shell:$command")
+                if (legacy.isNotEmpty()) result = AdbUsbClient.ShellV2Result(0, legacy, "")
+            }
             val combined = buildString {
                 if (result.stdout.isNotEmpty()) append(result.stdout)
                 if (result.stderr.isNotEmpty()) {

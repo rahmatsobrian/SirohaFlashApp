@@ -385,11 +385,6 @@ fun TerminalScreen(
                 }
             }
 
-            OperationOverlay(
-                busy = running,
-                logRepository = logRepository,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
         }
     }
 }
