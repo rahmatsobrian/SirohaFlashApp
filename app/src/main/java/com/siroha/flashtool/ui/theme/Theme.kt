@@ -182,9 +182,14 @@ fun SirohaFlashToolTheme(
     }
 
     val resolvedFontFamily: FontFamily = FontLoader.resolve(context, fontFamilyPreset, customFontPath)
+    // Terminal/log text follows the custom font too; without one it keeps a real monospace face.
+    val monoFontFamily: FontFamily =
+        if (fontFamilyPreset == FontFamilyPreset.CUSTOM && resolvedFontFamily != FontFamily.Default) resolvedFontFamily
+        else FontFamily.Monospace
 
     CompositionLocalProvider(
         LocalCardOpacity provides (if (glassMode) cardOpacity else 1f),
+        LocalMonospaceFontFamily provides monoFontFamily,
         LocalCardCornerRadius provides cardCornerRadius,
         // A flat black drop shadow is nearly invisible against this app's
         // dark surfaces and blurred glass backgrounds — there's not enough

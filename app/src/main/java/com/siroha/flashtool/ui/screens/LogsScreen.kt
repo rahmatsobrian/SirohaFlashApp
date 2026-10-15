@@ -40,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -52,6 +51,7 @@ import com.siroha.flashtool.ui.theme.HapticIconButton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 // Same "good state" accent used on Home/Settings/USB-Fix, so a SUCCESS log
 // line reads as the same green everywhere in the app.
@@ -86,13 +86,13 @@ private fun LogEntryRow(entry: LogEntry) {
             Text(
                 "${timeFormat.format(Date(entry.timestamp))}  ${entry.tag}",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = LocalMonospaceFontFamily.current,
                 color = color.copy(alpha = 0.8f)
             )
             Text(
                 entry.message,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = LocalMonospaceFontFamily.current,
                 color = color
             )
         }

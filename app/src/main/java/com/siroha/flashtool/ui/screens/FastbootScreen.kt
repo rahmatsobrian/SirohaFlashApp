@@ -58,7 +58,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.siroha.flashtool.core.AdbOperations
 import com.siroha.flashtool.core.FastbootOperations
@@ -93,6 +92,7 @@ import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 // Same "connected/good state" green used on Home/Settings, so this card
 // reads as the same signal wherever it shows up in the app.
@@ -182,7 +182,7 @@ private fun ResultCard(text: String, onDismiss: () -> Unit) {
                     text,
                     modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = LocalMonospaceFontFamily.current,
                     color = if (textOk(text)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                 )
             }

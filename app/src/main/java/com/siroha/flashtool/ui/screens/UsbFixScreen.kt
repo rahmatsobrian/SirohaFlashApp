@@ -47,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.siroha.flashtool.core.UsbDeviceHelper
@@ -56,6 +55,7 @@ import com.siroha.flashtool.ui.components.SirohaTopBar
 import kotlinx.coroutines.launch
 import com.siroha.flashtool.ui.components.ActionEntry
 import com.siroha.flashtool.ui.components.ActionListGroup
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 // Same "good state" accent used on Home/Settings, so a granted USB
 // permission reads as the same "everything's fine" green everywhere.
@@ -97,7 +97,7 @@ private fun UsbDeviceRow(device: UsbDevice, manager: UsbManager, refreshTick: In
                 Text(
                     "VID:PID = %04x:%04x".format(device.vendorId, device.productId),
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = LocalMonospaceFontFamily.current,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp)
                 )

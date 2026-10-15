@@ -53,7 +53,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -86,6 +85,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 private const val LARGE_BACKUP_BYTES = 1L shl 30
 
@@ -142,7 +142,7 @@ private fun CompactPartitionRow(
                 Text(
                     partition.name,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = LocalMonospaceFontFamily.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -652,7 +652,7 @@ fun BackupPartitionScreen(
                                         resultText,
                                         modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
                                         style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = LocalMonospaceFontFamily.current,
                                         color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                                     )
                                 }

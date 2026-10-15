@@ -59,7 +59,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -69,6 +68,7 @@ import com.siroha.flashtool.data.LogLevel
 import com.siroha.flashtool.data.LogRepository
 import com.siroha.flashtool.ui.theme.HapticIconButton
 import kotlinx.coroutines.delay
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 /** Running average of a transfer's speed, restarted whenever a new transfer begins (total changes or bytes go backwards). */
 private class SpeedTracker {
@@ -269,7 +269,7 @@ fun OperationOverlay(
                         Text(
                             stats,
                             style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = LocalMonospaceFontFamily.current,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -328,7 +328,7 @@ fun OperationOverlay(
                                                 append(e.message)
                                             },
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = LocalMonospaceFontFamily.current,
                                             color = if (e.level == LogLevel.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                                             maxLines = 3,
                                             overflow = TextOverflow.Ellipsis

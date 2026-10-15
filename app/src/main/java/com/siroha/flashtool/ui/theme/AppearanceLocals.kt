@@ -2,6 +2,7 @@ package com.siroha.flashtool.ui.theme
 
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
 /**
@@ -83,3 +84,10 @@ val LocalHapticTrigger = compositionLocalOf<() -> Unit> { {} }
  * before this setting existed.
  */
 val LocalButtonIndicatorEnabled = compositionLocalOf { false }
+
+/**
+ * Font for the places that used to hardcode [FontFamily.Monospace] (terminal, logs, command output).
+ * When a custom font is chosen in Settings > Font it is used here too, so no text in the app stays
+ * on the system font; otherwise it stays monospace. Provided once in SirohaFlashToolTheme.
+ */
+val LocalMonospaceFontFamily = compositionLocalOf<FontFamily> { FontFamily.Monospace }

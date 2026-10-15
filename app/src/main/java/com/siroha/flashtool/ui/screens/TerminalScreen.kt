@@ -75,7 +75,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,6 +99,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.siroha.flashtool.ui.theme.LocalMonospaceFontFamily
 
 /** The single character [new] added to [old] wherever the cursor was, or null if the edit wasn't a one-character insert. */
 private fun insertedChar(old: String, new: String): Char? {
@@ -362,7 +362,8 @@ fun TerminalScreen(
         }
     }
 
-    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 17.sp)
+    val monoFamily = LocalMonospaceFontFamily.current
+    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = monoFamily, fontSize = 12.sp, lineHeight = 17.sp)
     val colorInput = MaterialTheme.colorScheme.primary
     val colorOutput = MaterialTheme.colorScheme.onSurface
     val colorError = MaterialTheme.colorScheme.error
@@ -466,7 +467,7 @@ fun TerminalScreen(
                         // Stays editable while a command runs: Ctrl+C has to be typeable then.
                         singleLine = true,
                         textStyle = TextStyle(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = monoFamily,
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         ),
