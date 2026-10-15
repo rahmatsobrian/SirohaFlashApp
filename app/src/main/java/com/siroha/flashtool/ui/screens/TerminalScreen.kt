@@ -98,6 +98,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/** The single character [new] added to [old] wherever the cursor was, or null if the edit wasn't a one-character insert. */
+private fun insertedChar(old: String, new: String): Char? {
+    if (new.length != old.length + 1) return null
+    var i = 0
+    while (i < old.length && old[i] == new[i]) i++
+    return if (new.substring(i + 1) == old.substring(i)) new[i] else null
+}
+
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
@@ -372,6 +380,8 @@ fun TerminalScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // One-shot modifier: tap it, then press a key on the keyboard (Ctrl + C stops a running command).
+                    FilterChip(selected = ctrlArmed, onClick = { ctrlArmed = !ctrlArmed }, label = { Text("Ctrl") })
                     HapticIconButton(onClick = { openAttachPicker() }) {
                         Icon(Icons.Filled.AttachFile, contentDescription = "Attach a file")
                     }
@@ -390,25 +400,6 @@ fun TerminalScreen(
                     HapticIconButton(onClick = { session.clear() }) {
                         Icon(Icons.Filled.DeleteSweep, contentDescription = "Clear screen")
                     }
-                }
-
-                // Ctrl and friends. Ctrl is one-shot: tap it, then type a letter (Ctrl + C stops a running command).
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(selected = ctrlArmed, onClick = { ctrlArmed = !ctrlArmed }, label = { Text("Ctrl") })
-                    FilterChip(selected = false, onClick = { ctrlC() }, label = { Text("^C") })
-                    FilterChip(selected = false, onClick = { tab() }, label = { Text("Tab") })
-                    FilterChip(selected = false, onClick = { ctrlKey('d') }, label = { Text("^D") })
-                    FilterChip(selected = false, onClick = { moveCursor(input.selection.start - 1) }, label = { Text("←") })
-                    FilterChip(selected = false, onClick = { moveCursor(input.selection.start + 1) }, label = { Text("→") })
-                    FilterChip(selected = false, onClick = { moveCursor(0) }, label = { Text("Home") })
-                    FilterChip(selected = false, onClick = { moveCursor(input.text.length) }, label = { Text("End") })
                 }
 
                 // Prompt + input
@@ -431,11 +422,10 @@ fun TerminalScreen(
                     BasicTextField(
                         value = input,
                         onValueChange = { new ->
-                            if (ctrlArmed) {
+                            if (ctrlArmed && new.text != input.text) {
+                                // The next key typed is Ctrl + that key; the letter itself is not inserted.
                                 ctrlArmed = false
-                                val typed = if (new.text.length == input.text.length + 1 && new.selection.collapsed && new.selection.start > 0) {
-                                    new.text[new.selection.start - 1]
-                                } else null
+                                val typed = insertedChar(input.text, new.text)
                                 if (typed != null && typed.isLetter()) ctrlKey(typed) else input = new
                             } else {
                                 input = new
