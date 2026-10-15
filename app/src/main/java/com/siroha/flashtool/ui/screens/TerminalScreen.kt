@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +97,7 @@ import com.siroha.flashtool.ui.components.UsbModeChip
 import com.siroha.flashtool.ui.components.rememberUsbModeInfo
 import com.siroha.flashtool.ui.theme.HapticIconButton
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -150,7 +153,13 @@ fun TerminalScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val inputFocus = remember { FocusRequester() }
     var inputFocused by remember { mutableStateOf(false) }
-    var refocusAfterPicker by remember { mutableStateOf(false) }
+    // True while the keyboard has to be brought back by hand: set when the file picker opens and
+    // when the app is paused (recents / home) with the input focused. See the effect below.
+    var restoreKeyboard by remember { mutableStateOf(false) }
+    val windowInfo = LocalWindowInfo.current
+    var resumed by remember {
+        mutableStateOf((context.findActivity() as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) ?: true)
+    }
 
     // Only this screen needs the window to resize for the keyboard (imePadding below does the
     // rest). Without it the system pans the window AND imePadding lifts the content: a huge gap.
@@ -166,7 +175,28 @@ fun TerminalScreen(
         val activity = context.findActivity()
         val window = activity?.window
         val previous = window?.attributes?.softInputMode
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) applyResizeMode() }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                // Leaving with the keyboard up (recents, home, another app): let go of focus and
+                // close the keyboard NOW, so the system does not restore it on its own while the
+                // window is still settling (that restore is what left the window panned up AND
+                // lifted by imePadding = the big gap). The effect below brings it back cleanly.
+                Lifecycle.Event.ON_PAUSE -> {
+                    resumed = false
+                    if (inputFocused) {
+                        restoreKeyboard = true
+                        focusManager.clearFocus(force = true)
+                        keyboard?.hide()
+                    }
+                }
+                Lifecycle.Event.ON_START -> applyResizeMode()
+                Lifecycle.Event.ON_RESUME -> {
+                    applyResizeMode()
+                    resumed = true
+                }
+                else -> Unit
+            }
+        }
         (activity as? LifecycleOwner)?.lifecycle?.addObserver(observer)
         applyResizeMode()
         onDispose {
@@ -228,22 +258,24 @@ fun TerminalScreen(
     // picker opens and only brought back once the screen is resumed, settled and in resize mode.
     fun openAttachPicker() {
         if (running) return
-        refocusAfterPicker = inputFocused
+        restoreKeyboard = restoreKeyboard || inputFocused
         applyResizeMode()
         focusManager.clearFocus(force = true)
         keyboard?.hide()
         attachPicker.launch(arrayOf("*/*"))
     }
 
-    LaunchedEffect(refocusAfterPicker) {
-        if (!refocusAfterPicker) return@LaunchedEffect
-        val owner = context.findActivity() as? LifecycleOwner
-        while (isActive && owner != null && !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) delay(50)
+    // Brings the keyboard back only once the activity is RESUMED, the window has focus again and
+    // a short settle time has passed, always in resize mode first. Keyed on `resumed` so it is
+    // cancelled (not left polling) if the app is paused again meanwhile.
+    LaunchedEffect(restoreKeyboard, resumed) {
+        if (!restoreKeyboard || !resumed) return@LaunchedEffect
+        snapshotFlow { windowInfo.isWindowFocused }.first { it }
         delay(350)
         applyResizeMode()
         runCatching { inputFocus.requestFocus() }
         keyboard?.show()
-        refocusAfterPicker = false
+        restoreKeyboard = false
     }
 
     fun submit() {
